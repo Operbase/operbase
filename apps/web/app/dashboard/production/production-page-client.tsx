@@ -1,0 +1,587 @@
+'use client'
+
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import Link from 'next/link'
+import { Plus, Trash2, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
+import { createClient } from '@/lib/supabase/client'
+import { useBusinessContext } from '@/providers/business-provider'
+import { formatCurrency } from '@/lib/format-currency'
+import { trackEvent } from '@/lib/services/events'
+import { costPerOutputUnit } from '@/lib/bakery/cost'
+import { COMMON_BAKES, COMMON_BATCH_SIZES } from '@/lib/bakery/simple-presets'
+import { CupFractionRow, WholeNumberChips } from '@/components/bakery-quick-picks'
+import type {
+  ProductionBatchRow,
+  ProductionStockItemRow,
+} from '@/lib/dashboard/production-data'
+
+type Batch = ProductionBatchRow
+type StockItemOption = ProductionStockItemRow
+
+interface LineRow {
+  itemId: string
+  quantity: string
+}
+
+export function ProductionPageClient({
+  initialBatches,
+  initialStockItems,
+}: {
+  initialBatches: ProductionBatchRow[]
+  initialStockItems: ProductionStockItemRow[]
+}) {
+  const { businessId, currency } = useBusinessContext()
+  const [batches, setBatches] = useState<Batch[]>(initialBatches)
+  const [stockItems, setStockItems] = useState<StockItemOption[]>(initialStockItems)
+  const [isLoading, setIsLoading] = useState(false)
+  const skipInitialFetch = useRef(true)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingBatch, setEditingBatch] = useState<Batch | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [form, setForm] = useState({
+    productName: '',
+    unitsProduced: '',
+    notes: '',
+    producedAt: new Date().toISOString().split('T')[0],
+  })
+  const [lines, setLines] = useState<LineRow[]>([{ itemId: '', quantity: '' }])
+
+  const fetchStockItems = useCallback(async () => {
+    if (!businessId) return
+    const client = createClient()
+    const { data, error } = await client
+      .from('items')
+      .select(
+        `
+        id, name, type,
+        usage_unit:units!items_usage_unit_id_fkey (name)
+      `
+      )
+      .eq('business_id', businessId)
+      .order('name')
+
+    if (error) {
+      toast.error(error.message)
+      return
+    }
+
+    setStockItems(
+      (data ?? []).map((row: Record<string, unknown>) => {
+        const uu = row.usage_unit as { name?: string } | null
+        return {
+          id: row.id as string,
+          name: row.name as string,
+          type: row.type as string,
+          usage_unit_name: uu?.name ?? '—',
+        }
+      })
+    )
+  }, [businessId])
+
+  const fetchBatches = useCallback(async () => {
+    if (!businessId) return
+    setIsLoading(true)
+    const client = createClient()
+
+    const { data, error } = await client
+      .from('batches')
+      .select('*, products(name), batch_items(id)')
+      .eq('business_id', businessId)
+      .order('produced_at', { ascending: false })
+
+    if (error) {
+      toast.error(error.message)
+      setIsLoading(false)
+      return
+    }
+
+    setBatches(
+      (data ?? []).map((b: Record<string, unknown>) => {
+        const products = b.products as { name?: string } | null
+        const bi = b.batch_items as { id: string }[] | null
+        const notes = b.notes as string | null
+        return {
+          id: b.id as string,
+          product_name: products?.name ?? notes ?? 'Unnamed batch',
+          units_produced: Number(b.units_produced),
+          units_remaining: Number(b.units_remaining),
+          cost_of_goods: b.cost_of_goods != null ? Number(b.cost_of_goods) : null,
+          notes,
+          produced_at: b.produced_at as string,
+          has_inventory_lines: Array.isArray(bi) && bi.length > 0,
+        }
+      })
+    )
+    setIsLoading(false)
+  }, [businessId])
+
+  useEffect(() => {
+    setBatches(initialBatches)
+  }, [initialBatches])
+
+  useEffect(() => {
+    setStockItems(initialStockItems)
+  }, [initialStockItems])
+
+  useEffect(() => {
+    if (!businessId) return
+    if (skipInitialFetch.current) {
+      skipInitialFetch.current = false
+      return
+    }
+    void fetchBatches()
+    void fetchStockItems()
+  }, [businessId, fetchBatches, fetchStockItems])
+
+  function openAdd() {
+    setEditingBatch(null)
+    setForm({
+      productName: '',
+      unitsProduced: '',
+      notes: '',
+      producedAt: new Date().toISOString().split('T')[0],
+    })
+    setLines([{ itemId: '', quantity: '' }])
+    setDialogOpen(true)
+  }
+
+  function openEdit(batch: Batch) {
+    if (batch.has_inventory_lines) {
+      toast.message('Batches with ingredient deductions can only be deleted (stock is restored).')
+      return
+    }
+    setEditingBatch(batch)
+    setForm({
+      productName: batch.product_name,
+      unitsProduced: batch.units_produced.toString(),
+      notes: '',
+      producedAt: batch.produced_at.split('T')[0],
+    })
+    setLines([{ itemId: '', quantity: '' }])
+    setDialogOpen(true)
+  }
+
+  function addLine() {
+    setLines((prev) => [...prev, { itemId: '', quantity: '' }])
+  }
+
+  function removeLine(index: number) {
+    setLines((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault()
+    if (!businessId || isSubmitting) return
+
+    const units = parseFloat(form.unitsProduced)
+    if (!form.productName.trim() || !units || units <= 0) {
+      toast.error('Please fill in all required fields')
+      return
+    }
+
+    const resolvedLines = lines
+      .filter((l) => l.itemId && parseFloat(l.quantity) > 0)
+      .map((l) => ({ item_id: l.itemId, quantity: parseFloat(l.quantity) }))
+
+    const client = createClient()
+    setIsSubmitting(true)
+
+    try {
+      if (editingBatch) {
+        const extra = form.notes.trim()
+        const notes = `${form.productName.trim()}${extra ? ' — ' + extra : ''}`
+        const { error } = await client
+          .from('batches')
+          .update({
+            notes,
+            units_produced: units,
+            units_remaining: units,
+            produced_at: form.producedAt,
+          })
+          .eq('id', editingBatch.id)
+
+        if (error) throw error
+        toast.success('Batch updated!')
+      } else {
+        const { data: batchId, error } = await client.rpc('create_production_batch', {
+          p_business_id: businessId,
+          p_units_produced: units,
+          p_produced_at: new Date(form.producedAt).toISOString(),
+          p_display_name: form.productName.trim(),
+          p_extra_notes: form.notes.trim() || null,
+          p_lines: resolvedLines,
+        })
+
+        if (error) throw error
+        if (!batchId) throw new Error('No batch id returned')
+        trackEvent('batch_created', businessId, { batch_id: batchId, units_produced: units })
+        toast.success('Batch created — stock deducted.')
+      }
+
+      setDialogOpen(false)
+      fetchBatches()
+      fetchStockItems()
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to save batch'
+      toast.error(message)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('Delete this batch? Stock from ingredients will be restored if applicable.')) return
+
+    const batch = batches.find((b) => b.id === id)
+    const client = createClient()
+    const { error } = batch?.has_inventory_lines
+      ? await client.rpc('delete_production_batch', { p_batch_id: id })
+      : await client.from('batches').delete().eq('id', id)
+
+    if (error) {
+      toast.error(error.message)
+      return
+    }
+    toast.success('Batch deleted')
+    fetchBatches()
+    fetchStockItems()
+  }
+
+  const totalProduced = batches.reduce((sum, b) => sum + b.units_produced, 0)
+  const totalRemaining = batches.reduce((sum, b) => sum + b.units_remaining, 0)
+
+  function lineUsageUnitName(line: LineRow): string | null {
+    const it = stockItems.find((s) => s.id === line.itemId)
+    return it?.usage_unit_name?.toLowerCase() ?? null
+  }
+
+  function setLineQty(index: number, value: string) {
+    setLines((prev) => prev.map((row, i) => (i === index ? { ...row, quantity: value } : row)))
+  }
+
+  return (
+    <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Baking</h1>
+            <p className="text-gray-600 mt-1">
+              Log every batch you bake here. Select which ingredients you used and how many units you made —
+              OB deducts the stock automatically and calculates your cost of production.{' '}
+              <Link href="/dashboard/stock" className="text-amber-700 underline font-medium">
+                Add ingredients first
+              </Link>{' '}
+              if you haven&apos;t already.
+            </p>
+          </div>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button size="lg" className="bg-amber-600 hover:bg-amber-700 min-h-12 text-base shrink-0">
+                <Plus size={20} className="mr-2" />
+                Log a batch
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[90vh] overflow-y-auto max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="text-xl">
+                  {editingBatch ? 'Edit batch' : 'New batch'}
+                </DialogTitle>
+              </DialogHeader>
+              <form noValidate onSubmit={handleSave} className="space-y-4">
+                <div>
+                  <Label className="text-base">What is it?</Label>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {COMMON_BAKES.map((name) => (
+                      <Button
+                        key={name}
+                        type="button"
+                        variant="outline"
+                        size="lg"
+                        className="min-h-11 text-base"
+                        disabled={!!editingBatch?.has_inventory_lines}
+                        onClick={() => {
+                          if (name === 'Custom…') setForm((f) => ({ ...f, productName: '' }))
+                          else setForm((f) => ({ ...f, productName: name }))
+                        }}
+                      >
+                        {name}
+                      </Button>
+                    ))}
+                  </div>
+                  <Input
+                    id="productName"
+                    value={form.productName}
+                    onChange={(e) => setForm({ ...form, productName: e.target.value })}
+                    placeholder="Type a name if you picked Custom"
+                    className="mt-3 min-h-11 text-base"
+                    disabled={!!editingBatch?.has_inventory_lines}
+                  />
+                </div>
+                <div>
+                  <Label className="text-base">How many did you make?</Label>
+                  <WholeNumberChips
+                    values={[...COMMON_BATCH_SIZES]}
+                    onPick={(n) => setForm((f) => ({ ...f, unitsProduced: String(n) }))}
+                    className="mt-2"
+                  />
+                  <Input
+                    id="units"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    inputMode="decimal"
+                    value={form.unitsProduced}
+                    onChange={(e) => setForm({ ...form, unitsProduced: e.target.value })}
+                    placeholder="Or type a number"
+                    className="mt-2 min-h-11 text-base"
+                    disabled={!!editingBatch?.has_inventory_lines}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="date" className="text-base">
+                    Date
+                  </Label>
+                  <Input
+                    id="date"
+                    type="date"
+                    value={form.producedAt}
+                    onChange={(e) => setForm({ ...form, producedAt: e.target.value })}
+                    className="mt-1 min-h-11"
+                    required
+                  />
+                </div>
+                <details className="text-sm border rounded-lg p-3 bg-gray-50">
+                  <summary className="cursor-pointer font-medium">Note (optional)</summary>
+                  <Input
+                    id="notes"
+                    value={form.notes}
+                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                    placeholder="e.g. morning shift"
+                    className="mt-2 min-h-11"
+                  />
+                </details>
+
+                {!editingBatch && (
+                  <div className="space-y-3 border rounded-lg p-3 bg-amber-50/40">
+                    <div className="flex justify-between items-center gap-2">
+                      <Label className="text-base font-medium">Ingredients used</Label>
+                      <Button type="button" size="sm" variant="outline" onClick={addLine}>
+                        + Add row
+                      </Button>
+                    </div>
+                    <p className="text-xs text-gray-600">
+                      Pick from stock. For items counted in <strong>cups</strong>, use the cup buttons.
+                    </p>
+                    {lines.map((line, index) => {
+                      const cupItem = lineUsageUnitName(line) === 'cup'
+                      return (
+                        <div key={index} className="space-y-2 border-b border-amber-100 pb-3 last:border-0">
+                          <select
+                            value={line.itemId}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              setLines((prev) =>
+                                prev.map((row, i) => (i === index ? { ...row, itemId: v } : row))
+                              )
+                            }}
+                            className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-base min-h-11"
+                          >
+                            <option value="">— choose ingredient —</option>
+                            {stockItems.map((it) => (
+                              <option key={it.id} value={it.id}>
+                                {it.name} · {it.usage_unit_name}
+                              </option>
+                            ))}
+                          </select>
+                          <Input
+                            type="number"
+                            step="0.0001"
+                            min="0"
+                            inputMode="decimal"
+                            value={line.quantity}
+                            onChange={(e) => setLineQty(index, e.target.value)}
+                            placeholder="Amount"
+                            className="min-h-11 text-base"
+                          />
+                          {cupItem && (
+                            <div>
+                              <p className="text-xs text-gray-600 mb-1">Cup shortcuts</p>
+                              <CupFractionRow onPick={(v) => setLineQty(index, String(v))} />
+                            </div>
+                          )}
+                          {!cupItem && line.itemId && (
+                            <WholeNumberChips
+                              values={[1, 2, 5, 10, 100, 500]}
+                              onPick={(n) => setLineQty(index, String(n))}
+                            />
+                          )}
+                          {lines.length > 1 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive"
+                              onClick={() => removeLine(index)}
+                            >
+                              Remove row
+                            </Button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="w-full bg-amber-600 hover:bg-amber-700 min-h-12 text-base"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <><Loader2 size={18} className="mr-2 animate-spin" />Saving…</>
+                  ) : editingBatch ? 'Save' : 'Save batch'}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Total Batches</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{batches.length}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Units Produced</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{totalProduced.toFixed(0)}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Units Remaining</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-amber-600">{totalRemaining.toFixed(0)}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Units Sold</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">
+                {(totalProduced - totalRemaining).toFixed(0)}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Production batches</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <p className="text-center text-gray-500 py-8">Loading...</p>
+            ) : batches.length === 0 ? (
+              <p className="text-center text-gray-500 py-8">
+                No batches yet. Click &quot;New Batch&quot; to get started.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Product / name</TableHead>
+                      <TableHead>Produced</TableHead>
+                      <TableHead>Remaining</TableHead>
+                      <TableHead>Batch cost</TableHead>
+                      <TableHead>Cost / unit</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {batches.map((batch) => {
+                      const cogs = batch.cost_of_goods ?? 0
+                      const cpu = costPerOutputUnit(cogs, batch.units_produced)
+                      return (
+                        <TableRow key={batch.id}>
+                          <TableCell className="font-medium">
+                            {batch.product_name}
+                            {batch.has_inventory_lines && (
+                              <span className="ml-2 text-xs text-gray-500">(inventory)</span>
+                            )}
+                          </TableCell>
+                          <TableCell>{batch.units_produced}</TableCell>
+                          <TableCell>{batch.units_remaining}</TableCell>
+                          <TableCell>
+                            {batch.cost_of_goods != null ? formatCurrency(cogs, currency) : '—'}
+                          </TableCell>
+                          <TableCell>
+                            {batch.cost_of_goods != null ? formatCurrency(cpu, currency) : '—'}
+                          </TableCell>
+                          <TableCell>{new Date(batch.produced_at).toLocaleDateString()}</TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openEdit(batch)}
+                                disabled={batch.has_inventory_lines}
+                                title={
+                                  batch.has_inventory_lines
+                                    ? 'Delete and recreate to change ingredients'
+                                    : undefined
+                                }
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => handleDelete(batch.id)}
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+  )
+}

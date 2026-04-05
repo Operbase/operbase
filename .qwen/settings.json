@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(code *)",
+      "Bash(ollama *)",
+      "Bash(npx *)",
+      "Bash(sleep *)",
+      "Bash(then)",
+      "Bash(kill *)",
+      "Bash(else)",
+      "Bash(wait *)",
+      "Bash(fi)",
+      "Bash(node *)",
+      "Bash(git diff *)"
+    ]
+  },
+  "$version": 3
+}
