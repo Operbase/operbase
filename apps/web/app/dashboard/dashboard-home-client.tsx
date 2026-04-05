@@ -28,8 +28,6 @@ import type {
   DashboardSpendRow,
 } from '@/lib/dashboard/load-home-data'
 
-const COLORS = ['#d97706', '#ea580c', '#fbbf24']
-
 export function DashboardHomeClient({
   metrics,
   monthlySpend,
@@ -66,6 +64,9 @@ export function DashboardHomeClient({
     { name: 'Costs', value: metrics.totalCogs },
     { name: 'Left over', value: Math.max(0, metrics.grossProfit) },
   ]
+
+  // Pie chart: brand colour + two contrast tones that work regardless of brandColor
+  const pieColors = [brandColor ?? '#d97706', '#6b7280', '#d1d5db']
 
   if (bizError) {
     return (
@@ -308,7 +309,7 @@ export function DashboardHomeClient({
                     outerRadius={80}
                     dataKey="value"
                   >
-                    {COLORS.map((color, index) => (
+                    {pieColors.map((color, index) => (
                       <Cell key={`cell-${index}`} fill={color} />
                     ))}
                   </Pie>
