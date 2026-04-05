@@ -337,15 +337,60 @@ Endpoints:
 
 ---
 
-## 7. Security Foundations
+## 7. Infrastructure & Hosting Strategy
+
+**Current:** Single Vercel project (`operbase`) on the free tier under the Operbase GitHub org.
+
+**Target architecture (when scaling):**
+- Vercel supports **per-project Pro** or **team-wide Pro** — team-wide is the right model for Operbase since all products (main app, marketing, future API) live under one org and share bandwidth, build minutes, and team seats
+- One Vercel team (`Operbase`) → multiple projects (`web`, `api`, `marketing`) — each deployed independently but sharing one billing plan
+- This mirrors how the Vercel pricing works: you pay per team, not per project
+
+**Migration path:**
+1. Now: free tier, single project, public repo
+2. First revenue: upgrade to Vercel Pro team — move repo back to private, unlock preview deployments, higher build limits
+3. Scale: consider edge functions or dedicated compute for the tax engine (Phase 6) if latency becomes a concern
+
+---
+
+## 8. Legal & Compliance
+
+This section must be completed **before any paid plan is offered or user data is stored in production at scale.**
+
+### Privacy & Terms
+
+| Item | Detail |
+|------|--------|
+| **Privacy Policy** | Required by GDPR (EU), NDPR (Nigeria), and most app stores. Must state what data is collected, why, how long it's kept, and user rights. |
+| **Terms of Service** | Sets the contract between Operbase and the business owner. Covers acceptable use, liability, payment terms, account termination. |
+| **Accept on signup** | Users must actively accept Privacy Policy + Terms before creating an account — checkbox with links, not pre-ticked. Store `accepted_terms_at` timestamp on the user record. |
+| **Cookie consent** | Required for GDPR users. Operbase uses Supabase auth cookies (strictly necessary, no consent needed) + any analytics. Show a consent banner for non-essential cookies. |
+| **NDPR** (Nigeria Data Protection Regulation) | Applies because the primary market includes Nigeria. Requires a Privacy Policy, lawful basis for processing, and data subject rights (access, deletion). |
+| **GDPR** (EU General Data Protection Regulation) | Applies to any EU users. Stricter than NDPR — includes right to erasure ("delete my account + data"), data portability, and DPA requirements if using processors (Supabase, Vercel). |
+
+### Implementation plan
+
+1. Write Privacy Policy and Terms of Service pages (`/privacy`, `/terms`) — linked from footer and signup
+2. Add `accepted_terms_at timestamptz` and `accepted_terms_version text` columns to `auth.users` metadata (or a `user_consents` table)
+3. Signup form: checkbox "I agree to the Terms of Service and Privacy Policy" — required, not pre-checked
+4. Cookie banner: lightweight, stores preference in `localStorage`; only fires for non-essential cookies
+5. Account deletion flow: when a user deletes their account, cascade-delete all business data or anonymise it (Supabase `auth.admin.deleteUser` + trigger)
+6. Data Processing Agreement (DPA) with Supabase — already available at supabase.com/dpa; sign and store a copy
+
+**Status:** Not started. Footer links (`/privacy`, `/terms`) are placeholders. **Do before launching paid plans.**
+
+---
+
+## 9. Security Foundations
 
 - All data scoped by `business_id`  
 - Row-level security (RLS)  
 - Role-based access (Phase 2 — schema path ready)  
+- DB errors never surfaced to users raw (see `lib/errors.ts` `friendlyError()`)  
 
 ---
 
-## 8. UX Principles
+## 10. UX Principles
 
 - Speed over features  
 - Minimal input required  
@@ -354,7 +399,7 @@ Endpoints:
 
 ---
 
-## 9. Key Risks & Mitigation
+## 11. Key Risks & Mitigation
 
 | Risk | Mitigation |
 |------|------------|
@@ -364,16 +409,18 @@ Endpoints:
 | Tax law complexity per country | Config-driven rules table, not hard-coded logic; start with user's declared country |
 | Multi-currency financial consolidation | All internal values stored in business's base currency; FX conversion is a reporting layer |
 | Billing alienating early users | Grandfather Phase 1 core features; gate only advanced features |
+| Legal exposure (GDPR/NDPR) | Implement terms, privacy policy, cookie consent, and account deletion before scaling — see Section 8 |
+| Hosting cost spike | Vercel team Pro when revenue justifies; one plan covers all projects under the org |
 
 ---
 
-## 10. Guiding Principle
+## 12. Guiding Principle
 
 **Build for one real user → Validate → Expand → Platformize**
 
 ---
 
-## 11. Event Tracking (Analytics)
+## 13. Event Tracking (Analytics)
 
 Track:
 
