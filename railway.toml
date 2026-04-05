@@ -1,0 +1,9 @@
+[build]
+builder = "nixpacks"
+buildCommand = "cd apps/web && npm install && npm run build && cp -r public .next/standalone/public && cp -r .next/static .next/standalone/.next/static"
+
+[deploy]
+startCommand = "cd apps/web && node .next/standalone/server.js"
+healthcheckPath = "/"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
