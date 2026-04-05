@@ -11,12 +11,12 @@ import { Wheat, ArrowRight, ChevronLeft, Building2, Palette, Tag, DollarSign } f
 import { createClient } from '@/lib/supabase/client'
 
 const BUSINESS_TYPES = [
-  { value: 'bakery', label: 'Bakery', emoji: '🥖' },
-  { value: 'restaurant', label: 'Restaurant', emoji: '🍽️' },
-  { value: 'cafe', label: 'Cafe', emoji: '☕' },
-  { value: 'catering', label: 'Catering', emoji: '🎂' },
-  { value: 'food_production', label: 'Food Production', emoji: '🏭' },
-  { value: 'other', label: 'Other', emoji: '🏪' },
+  { value: 'bakery', label: 'Bakery', emoji: '🥖', available: true },
+  { value: 'restaurant', label: 'Restaurant', emoji: '🍽️', available: false },
+  { value: 'cafe', label: 'Cafe', emoji: '☕', available: false },
+  { value: 'catering', label: 'Catering', emoji: '🎂', available: false },
+  { value: 'food_production', label: 'Food Production', emoji: '🏭', available: false },
+  { value: 'other', label: 'Other', emoji: '🏪', available: false },
 ]
 
 const BRAND_COLORS = [
@@ -282,15 +282,21 @@ export default function OnboardingPage() {
                 <button
                   key={type.value}
                   type="button"
-                  onClick={() => setForm({ ...form, businessType: type.value })}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${
-                    form.businessType === type.value
+                  disabled={!type.available}
+                  onClick={() => type.available && setForm({ ...form, businessType: type.value })}
+                  className={`p-4 rounded-xl border-2 text-left transition-all relative ${
+                    !type.available
+                      ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed'
+                      : form.businessType === type.value
                       ? 'border-amber-600 bg-amber-50'
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
                 >
                   <span className="text-2xl block mb-1">{type.emoji}</span>
                   <span className="text-sm font-medium text-gray-900">{type.label}</span>
+                  {!type.available && (
+                    <span className="text-xs text-gray-400 block mt-0.5">Coming soon</span>
+                  )}
                 </button>
               ))}
             </div>
