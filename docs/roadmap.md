@@ -33,7 +33,10 @@ Operbase is a simple business operating system for small businesses to track ope
 
 - Ecommerce  
 - Payment Integrations  
+- Invoicing + Document Printing  
+- Globalisation (tax, multi-location, multi-country)  
 - AI Insights  
+- Platform Billing  
 
 **Solution Layer (Entry Points)**
 
@@ -107,17 +110,20 @@ Operbase is a simple business operating system for small businesses to track ope
 
 ### Phase 4 — Financial Layer
 
-**Goal:** Enable transactions  
+**Goal:** Enable transactions and document generation  
 
 **Features:**
 
 - Payment methods (manual + gateway-ready)  
-- Invoicing  
+- Invoicing — generate, send, and track invoices per customer/sale  
+- Document printing — any generated document (invoice, batch report, sales summary) printable as PDF  
+- Billing engine — charge businesses based on plan tier and feature access (see Phase 7)  
 
 **Data focus:**
 
 - Payment behavior  
 - Revenue patterns  
+- Invoice status + aging  
 
 **Status:** Schema scaffolded (`payment_methods`, `business_payment_settings`). No UI.
 
@@ -141,7 +147,36 @@ Operbase is a simple business operating system for small businesses to track ope
 
 ---
 
-### Phase 6 — Intelligence Layer
+### Phase 6 — Globalisation Layer
+
+**Goal:** Make Operbase work correctly regardless of country of operation  
+
+**Features:**
+
+- Country of operation set per business (already have `timezone`, `currency`, `locale` in `business_settings`)  
+- Tax engine — calculate tax per transaction based on business country + business type (VAT, GST, sales tax, etc.)  
+- Tax filing support — generate tax-period summaries formatted to local filing requirements  
+- Multi-location / multi-country businesses — a single business account can have multiple operating locations, each with its own country, currency, and tax rules; financial reporting consolidates across locations  
+- Localised number/date/currency formatting per business locale  
+- Globalization-aware invoicing — invoice layout, tax line display, and legal fields vary by country  
+
+**Design principles:**
+
+- Tax is always additive, never baked into core price fields — all existing `revenue`, `cogs`, `gross_profit` columns stay tax-exclusive; tax is a separate layer on top  
+- Country + business-type matrix drives which tax rules apply (e.g. a bakery in Nigeria uses FIRS VAT 7.5%; a bakery in the UK uses HMRC VAT 20% with potential zero-rating on certain baked goods)  
+- No hard-coded country logic in the app — tax rules live in a configurable table, not code  
+
+**Data focus:**
+
+- Tax collected per period  
+- Cross-location revenue consolidation  
+- Compliance filing history  
+
+**Status:** Not started. Currency at onboarding is the first step (Phase 1 ✅). Full tax engine is Phase 6.
+
+---
+
+### Phase 7 — Intelligence Layer
 
 **Goal:** Smart insights  
 
@@ -157,6 +192,28 @@ Operbase is a simple business operating system for small businesses to track ope
 - Predictive patterns  
 
 **Status:** Not started.
+
+---
+
+### Phase 8 — Platform Billing
+
+**Goal:** Charge businesses based on access to features  
+
+**Features:**
+
+- Plan tiers (Free, Starter, Pro, Enterprise) — already seeded as `businesses.plan` column  
+- Feature gating — `business_feature_flags` table (Phase 5 schema) drives which features are unlocked per plan  
+- Usage-based limits — e.g. number of users, locations, API calls  
+- Self-serve upgrade/downgrade inside the app  
+- Payment gateway integration for subscription billing  
+
+**Design principles:**
+
+- Never gate Phase 1 core features (stock, production, sales) for existing users — grandfather them  
+- Advanced features (multi-location, tax filing, invoice generation, ecommerce) are paid-tier  
+- Billing is per business, not per user seat (at least initially)  
+
+**Status:** Not started. `businesses.plan` column and `feature_flags`/`business_feature_flags` tables are schema-ready.
 
 ---
 
@@ -304,6 +361,9 @@ Endpoints:
 | Overbuilding too early | Strict phase execution — see scope guard at top |
 | Complex UX | Continuous user testing |
 | Rigid data model | Modular API design |
+| Tax law complexity per country | Config-driven rules table, not hard-coded logic; start with user's declared country |
+| Multi-currency financial consolidation | All internal values stored in business's base currency; FX conversion is a reporting layer |
+| Billing alienating early users | Grandfather Phase 1 core features; gate only advanced features |
 
 ---
 
