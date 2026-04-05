@@ -18,6 +18,8 @@ Refer to **`roadmap.md`** (this file, under `docs/`) for:
 
 Operbase is a simple business operating system for small businesses to track operations, understand costs, and know real profit with clarity.
 
+The long-term possibility — not a guarantee, but a direction worth building toward — is that Operbase becomes more than a back-office tool. With enough businesses on the platform, Operbase could become the layer that connects them to customers: a network where we help small businesses get found, get orders, and grow. If we reach that point, the data and trust we have built from running their operations puts us in a uniquely credible position to do it.
+
 ---
 
 ## 2. Product Layers
@@ -37,6 +39,7 @@ Operbase is a simple business operating system for small businesses to track ope
 - Globalisation (tax, multi-location, multi-country)  
 - AI Insights  
 - Platform Billing  
+- Customer Acquisition Network *(long-term vision — see Phase 9)*  
 
 **Solution Layer (Entry Points)**
 
@@ -214,6 +217,40 @@ Operbase is a simple business operating system for small businesses to track ope
 - Billing is per business, not per user seat (at least initially)  
 
 **Status:** Not started. `businesses.plan` column and `feature_flags`/`business_feature_flags` tables are schema-ready.
+
+---
+
+### Phase 9 — Customer Acquisition Network *(Long-term vision)*
+
+**Goal:** Help businesses on Operbase find and attract customers — not just manage the ones they already have
+
+This is exploratory, not committed. It only makes sense if we have a critical mass of businesses and enough trust built from being inside their operations. The idea is that Operbase, having run the back office for hundreds of small businesses, is in a position to bridge them to the customers who want what they make.
+
+**Possible directions:**
+
+- **Discovery layer** — a lightweight public-facing surface (directory, search, or embed) where consumers can find local businesses powered by Operbase (e.g. bakeries near me that sell sourdough)
+- **Lead routing** — when a consumer expresses interest, route it to the right business based on location, capacity (we know their stock levels), and product match
+- **AI-powered matching** — use operational data (what they produce, how often, at what cost) to surface the right businesses for the right demand; suggest to businesses when to produce more based on demand patterns
+- **Attribution tracking** — every customer we help a business acquire is tracked separately from their existing walk-in customers; we need a clean number for "customers Operbase helped you get" so we can prove value and eventually charge for it
+- **Referral mechanics** — businesses on the network can refer each other (e.g. a bakery refers a customer to a packaging supplier also on Operbase)
+
+**What needs to be true first:**
+
+- Ecommerce layer (Phase 5) must exist — public ordering pages are the consumer-facing surface
+- Enough businesses on the platform to make discovery meaningful (network effect threshold)
+- Customer data model strong enough to distinguish acquisition source (organic vs. Operbase-referred)
+- Trust: businesses must believe Operbase routing them customers is genuinely valuable, not a data play
+
+**Data we need to be collecting now (Phase 1+):**
+
+- Sales volume and frequency per business (already tracked)  
+- Product types and inventory levels (already tracked)  
+- Customer repeat rate — are their existing customers coming back?  
+- Geographic data — where is the business, where are their customers?  
+
+**Monetisation hypothesis:** Take a small success fee per Operbase-referred customer who converts, or offer it as a premium plan feature. Either way, it only works if the referral quality is high.
+
+**Status:** Not started. Vision only. Do not build until Phase 5 (ecommerce) is live and validated.
 
 ---
 
@@ -411,6 +448,7 @@ This section must be completed **before any paid plan is offered or user data is
 | Billing alienating early users | Grandfather Phase 1 core features; gate only advanced features |
 | Legal exposure (GDPR/NDPR) | Implement terms, privacy policy, cookie consent, and account deletion before scaling — see Section 8 |
 | Hosting cost spike | Vercel team Pro when revenue justifies; one plan covers all projects under the org |
+| Customer network becomes a data trust problem | Be transparent from day one that operational data informs matching; never sell raw data; success fee model keeps incentives aligned |
 
 ---
 
