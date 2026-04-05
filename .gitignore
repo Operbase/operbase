@@ -13,3 +13,15 @@ build/
 
 # Supabase
 .supabase/
+
+# AI tool configs (local only)
+.qwen/
+.cursor/
+.aider*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# TypeScript build info
+*.tsbuildinfo
