@@ -61,6 +61,7 @@ describe('signUp()', () => {
     expect(mockSupabaseClient.auth.signUp).toHaveBeenCalledWith({
       email: 'new@example.com',
       password: 'mypassword',
+      options: { data: undefined },
     })
   })
 

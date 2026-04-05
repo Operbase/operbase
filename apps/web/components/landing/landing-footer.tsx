@@ -62,7 +62,10 @@ export function LandingFooter() {
             <h3 className="text-xs font-semibold uppercase tracking-wider text-primary-foreground/50">Legal</h3>
             <ul className="mt-4 space-y-2">
               <li>
-                <span className="text-sm text-primary-foreground/45">Privacy and terms — coming soon</span>
+                <Link href="/privacy" className={linkClass}>Privacy Policy</Link>
+              </li>
+              <li>
+                <Link href="/terms" className={linkClass}>Terms of Service</Link>
               </li>
             </ul>
           </div>

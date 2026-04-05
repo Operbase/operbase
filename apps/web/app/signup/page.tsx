@@ -29,6 +29,7 @@ export default function SignupPage() {
     password: '',
     confirmPassword: '',
   })
+  const [agreedToTerms, setAgreedToTerms] = useState(false)
   const router = useRouter()
 
   function handleInputChange(field: string, value: string) {
@@ -52,10 +53,17 @@ export default function SignupPage() {
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
+    if (!agreedToTerms) {
+      toast.error('Please accept the Terms of Service and Privacy Policy to continue.')
+      return
+    }
     setIsLoading(true)
 
     try {
-      await signUp(formData.email, formData.password)
+      await signUp(formData.email, formData.password, {
+        accepted_terms_at: new Date().toISOString(),
+        accepted_terms_version: '2026-04-05',
+      })
       toast.success('Account created! Check your email to verify, then sign in.')
       router.push('/login')
     } catch (error) {
@@ -247,6 +255,27 @@ export default function SignupPage() {
               <p className="text-sm text-gray-500">
                 You&apos;ll set up your business details after verifying your email.
               </p>
+
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={agreedToTerms}
+                  onChange={(e) => setAgreedToTerms(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 accent-amber-600 cursor-pointer"
+                  required
+                />
+                <span className="text-sm text-gray-600 leading-snug">
+                  I have read and agree to the{' '}
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-amber-700 underline hover:text-amber-800">
+                    Terms of Service
+                  </a>{' '}
+                  and{' '}
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-amber-700 underline hover:text-amber-800">
+                    Privacy Policy
+                  </a>
+                </span>
+              </label>
+
               <div className="flex gap-3">
                 <Button
                   type="button"

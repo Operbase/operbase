@@ -42,8 +42,8 @@ const defaultColumns = [
   {
     title: 'Legal',
     links: [
-      { href: '#', label: 'Privacy Policy', external: true },
-      { href: '#', label: 'Terms of Service', external: true },
+      { href: '/privacy', label: 'Privacy Policy' },
+      { href: '/terms', label: 'Terms of Service' },
     ],
   },
 ]

@@ -108,13 +108,16 @@ describe('SignupPage — step 2 (confirm)', () => {
       error: null,
     })
 
+    await user.click(screen.getByRole('checkbox'))
     await user.click(screen.getByRole('button', { name: /create account/i }))
 
     await waitFor(() => {
-      expect(mockSupabaseClient.auth.signUp).toHaveBeenCalledWith({
-        email: 'test@example.com',
-        password: VALID_PASSWORD,
-      })
+      expect(mockSupabaseClient.auth.signUp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'test@example.com',
+          password: VALID_PASSWORD,
+        })
+      )
       expect(mockPush).toHaveBeenCalledWith('/login')
     })
   })
@@ -127,6 +130,7 @@ describe('SignupPage — step 2 (confirm)', () => {
       error: new Error('Email already registered'),
     })
 
+    await user.click(screen.getByRole('checkbox'))
     await user.click(screen.getByRole('button', { name: /create account/i }))
 
     await waitFor(() => {
