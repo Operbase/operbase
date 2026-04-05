@@ -18,6 +18,7 @@ import { signOut } from '@/lib/auth'
 import { toast } from 'sonner'
 import { useBusinessContext } from '@/providers/business-provider'
 import { createClient } from '@/lib/supabase/client'
+import { businessInitials } from '@/lib/brand/business-initials'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -97,10 +98,7 @@ function DashboardLayoutInner({ children, userEmail, userName }: DashboardLayout
     }
   }
 
-  // First two letters of business name as fallback avatar
-  const initials = businessName
-    ? businessName.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
-    : '?'
+  const initials = businessInitials(businessName)
 
   const Sidebar = (
     <div className="flex flex-col h-full">
