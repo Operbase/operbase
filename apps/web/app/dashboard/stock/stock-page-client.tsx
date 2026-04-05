@@ -35,6 +35,7 @@ import {
 } from '@/lib/bakery/simple-presets'
 import { CupFractionRow, WholeNumberChips } from '@/components/bakery-quick-picks'
 import type { StockItemRow, StockUnitRow } from '@/lib/dashboard/stock-data'
+import { friendlyError } from '@/lib/errors'
 
 type Item = StockItemRow
 type Unit = StockUnitRow
@@ -323,8 +324,7 @@ export function StockPageClient({
       setDialogOpen(false)
       fetchItems()
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Failed to save'
-      toast.error(message)
+      toast.error(friendlyError(error, 'Failed to save'))
     } finally {
       setIsSubmitting(false)
     }
@@ -335,7 +335,7 @@ export function StockPageClient({
 
     const { error } = await supabase.from('items').delete().eq('id', id)
     if (error) {
-      toast.error(error.message)
+      toast.error(friendlyError(error))
       return
     }
     toast.success('Removed')
@@ -374,8 +374,7 @@ export function StockPageClient({
       setRestockPurchaseQty('')
       fetchItems()
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Failed to restock'
-      toast.error(message)
+      toast.error(friendlyError(error, 'Failed to restock'))
     } finally {
       setIsSubmitting(false)
     }

@@ -29,6 +29,7 @@ import { saleCogsFromBatch } from '@/lib/bakery/cost'
 import { trackEvent } from '@/lib/services/events'
 import { COMMON_SALE_AMOUNTS, COMMON_SALE_PRICES } from '@/lib/bakery/simple-presets'
 import { PriceChips, WholeNumberChips } from '@/components/bakery-quick-picks'
+import { friendlyError } from '@/lib/errors'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -93,7 +94,7 @@ export function SalesPageClient({
       .order('sold_at', { ascending: false })
 
     if (error) {
-      toast.error(error.message)
+      toast.error(friendlyError(error))
       setIsLoading(false)
       return
     }
@@ -279,8 +280,7 @@ export function SalesPageClient({
       setDialogOpen(false)
       fetchSales()
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Failed to save sale'
-      toast.error(message)
+      toast.error(friendlyError(error, 'Failed to save sale'))
     } finally {
       setIsSubmitting(false)
     }
@@ -291,7 +291,7 @@ export function SalesPageClient({
 
     const { error } = await supabase.from('sales').delete().eq('id', id)
     if (error) {
-      toast.error(error.message)
+      toast.error(friendlyError(error))
       return
     }
     toast.success('Sale deleted')

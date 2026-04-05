@@ -155,8 +155,9 @@ export default function OnboardingPage() {
           router.push('/dashboard')
           return
         }
-        // Surface the actual Postgres error (PostgrestError has .message but is not instanceof Error)
-        throw new Error(rpcError.message ?? 'Failed to create business')
+        // Log the raw DB error server-side only — never expose schema details to the user
+        console.error('[onboarding] create_business_with_owner failed:', rpcError.message)
+        throw new Error('We could not set up your business. Please try again or contact support.')
       }
 
       persistDraftRef.current = false

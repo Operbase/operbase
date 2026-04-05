@@ -30,6 +30,7 @@ import { trackEvent } from '@/lib/services/events'
 import { costPerOutputUnit } from '@/lib/bakery/cost'
 import { COMMON_BAKES, COMMON_BATCH_SIZES } from '@/lib/bakery/simple-presets'
 import { CupFractionRow, WholeNumberChips } from '@/components/bakery-quick-picks'
+import { friendlyError } from '@/lib/errors'
 import type {
   ProductionBatchRow,
   ProductionStockItemRow,
@@ -81,7 +82,7 @@ export function ProductionPageClient({
       .order('name')
 
     if (error) {
-      toast.error(error.message)
+      toast.error(friendlyError(error))
       return
     }
 
@@ -110,7 +111,7 @@ export function ProductionPageClient({
       .order('produced_at', { ascending: false })
 
     if (error) {
-      toast.error(error.message)
+      toast.error(friendlyError(error))
       setIsLoading(false)
       return
     }
@@ -242,8 +243,7 @@ export function ProductionPageClient({
       fetchBatches()
       fetchStockItems()
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Failed to save batch'
-      toast.error(message)
+      toast.error(friendlyError(error, 'Failed to save batch'))
     } finally {
       setIsSubmitting(false)
     }
@@ -259,7 +259,7 @@ export function ProductionPageClient({
       : await client.from('batches').delete().eq('id', id)
 
     if (error) {
-      toast.error(error.message)
+      toast.error(friendlyError(error))
       return
     }
     toast.success('Batch deleted')
