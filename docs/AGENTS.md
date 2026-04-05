@@ -200,7 +200,7 @@ business_modules        ← Which modules a business has enabled
 /login           → Sign-in (email/password + Google) → /dashboard
 /signup          → Sign-up (strong password rules) → verify if required → /login
 /auth/callback   → Supabase OAuth/email link callback
-/onboarding      → Multi-step form after first login (creates business via RPC)
+/onboarding      → Multi-step form after first login (creates business via RPC); partial progress saved in localStorage (per user + device)
 /dashboard/*     → Protected; middleware checks session (+ `user_businesses` on first dashboard hit, then `ob_onboarded` cookie for ~1h; layout also verifies session + business)
 ```
 
@@ -213,6 +213,21 @@ Middleware (`apps/web/middleware.ts`) enforces:
 6. **Onboarding cookie (`ob_onboarded`):** After the first successful `user_businesses` check for a dashboard request, middleware sets a short-lived **httpOnly** cookie (1h TTL) so later navigations skip that DB round-trip. The cookie is cleared when there is no session. **Local dev:** `secure` is false so the cookie works on `http://localhost`.
 
 Keep middleware limited to auth and onboarding — no extra product logic here.
+
+### Onboarding draft persistence
+
+Partial onboarding progress is **saved in the browser** so a signed-in user without a business can close the tab and return on the **same device** without losing the wizard step and form fields.
+
+| Topic | Detail |
+|-------|--------|
+| **Module** | `lib/onboarding/draft-storage.ts` — `loadOnboardingDraft`, `saveOnboardingDraft`, `clearOnboardingDraft`, `onboardingDraftStorageKey` |
+| **Storage key** | `operbase.onboardingDraft.v1:<userId>` in `localStorage` (scoped per Supabase user id) |
+| **UI wiring** | `app/onboarding/page.tsx` — hydrate after `getUser()`; debounced save (~400ms) when `step` or `form` changes; `toast.message` when a draft is restored |
+| **Clear draft** | After successful `create_business_with_owner`; on RPC error path *user already has a business*; **Start over and clear saved progress**; drafts **older than 90 days** are removed on load |
+| **Race guard** | A ref stops persisting after a successful finish so a late debounced write cannot recreate a draft |
+| **Not cross-device** | No Supabase table — for cross-browser resume you would add an `onboarding_drafts` (or similar) table with RLS |
+
+**Tests:** `__tests__/lib/onboarding/draft-storage.test.ts`. Onboarding page tests install `__tests__/helpers/memory-local-storage.ts` because some Node/Vitest environments expose an incomplete `localStorage` (e.g. missing `clear`).
 
 ---
 
@@ -256,6 +271,7 @@ lib/
                           Fails silently. Fire AFTER a successful write, never before.
   bakery/cost.ts          costPerUsageUnit, usageQuantityFromPurchaseQty, batch/sale COGS helpers
   bakery/simple-presets.ts COMMON_INGREDIENTS, COMMON_BAKES, COMMON_BATCH_SIZES, etc.
+  onboarding/draft-storage.ts  localStorage helpers for onboarding wizard draft (see "Onboarding draft persistence")
   utils.ts                cn() — Tailwind class merge utility
   dashboard/
     cached-dashboard-context.ts  getCachedDashboardContext() — React `cache()`'d auth + primary
@@ -281,7 +297,7 @@ app/
   login/page.tsx        Login (email/password, Google, password visibility)
   signup/page.tsx       Signup form (email + password only; business set up in onboarding)
   auth/callback/        Supabase auth callback handler
-  onboarding/page.tsx   3-step: business name → branding → business type
+  onboarding/page.tsx   3-step: business name → branding → business type (+ local draft persistence)
   dashboard/
     layout.tsx          Server: session + business guard; BusinessProvider + DashboardLayout shell
     page.tsx            Server: load RPC metrics → `<DashboardHomeClient />` (charts, telemetry)
@@ -379,8 +395,10 @@ Run in watch mode: `npm run test:watch`
 Tests live in `apps/web/__tests__/`. Mirror the source structure:
 ```
 __tests__/
+  helpers/memory-local-storage.ts  in-memory Storage for tests that need localStorage
   lib/utils.test.ts
   lib/auth.test.ts
+  lib/onboarding/draft-storage.test.ts
   hooks/use-business.test.ts
   app/login.test.tsx
   app/signup.test.tsx

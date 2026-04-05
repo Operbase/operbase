@@ -16,10 +16,13 @@ vi.mock('next/navigation', () => ({
 }))
 
 import OnboardingPage from '@/app/onboarding/page'
+import { onboardingDraftStorageKey } from '@/lib/onboarding/draft-storage'
+import { installMemoryLocalStorage } from '@/__tests__/helpers/memory-local-storage'
 
 const TEST_USER = { id: 'user-123', email: 'owner@example.com' }
 
 beforeEach(() => {
+  installMemoryLocalStorage()
   resetSupabaseMocks()
   mockPush.mockClear()
   mockRefresh.mockClear()
@@ -29,11 +32,91 @@ beforeEach(() => {
   })
 })
 
-describe('OnboardingPage — step 1 (business name)', () => {
-  it('renders the business name input on first load', () => {
+describe('OnboardingPage — draft persistence', () => {
+  it('restores step and fields from localStorage', async () => {
+    localStorage.setItem(
+      onboardingDraftStorageKey(TEST_USER.id),
+      JSON.stringify({
+        v: 1,
+        savedAt: Date.now(),
+        step: 'branding',
+        form: {
+          businessName: 'Draft Co',
+          logoUrl: '',
+          brandColor: '#dc2626',
+          businessType: 'bakery',
+          currency: 'EUR',
+        },
+      })
+    )
+
     render(<OnboardingPage />)
 
-    expect(screen.getByText(/create your business/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText(/brand your business/i)).toBeInTheDocument()
+    })
+    const currency = screen.getByLabelText(/currency/i) as HTMLSelectElement
+    expect(currency.value).toBe('EUR')
+  })
+
+  it('clears saved draft after successful finish', async () => {
+    const user = userEvent.setup()
+    render(<OnboardingPage />)
+    await user.type(screen.getByPlaceholderText(/sweet delights bakery/i), 'My Bakery')
+    await user.click(screen.getByRole('button', { name: /next/i }))
+    await waitFor(() => screen.getByText(/brand your business/i))
+    await user.click(screen.getByRole('button', { name: /next/i }))
+    await waitFor(() => screen.getByText(/what type of business/i))
+
+    mockSupabaseClient.rpc = vi.fn().mockResolvedValue({ data: 'biz-456', error: null })
+
+    await user.click(screen.getByRole('button', { name: /get started/i }))
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/dashboard')
+    })
+    expect(localStorage.getItem(onboardingDraftStorageKey(TEST_USER.id))).toBeNull()
+  })
+
+  it('start over clears draft and returns to step 1', async () => {
+    localStorage.setItem(
+      onboardingDraftStorageKey(TEST_USER.id),
+      JSON.stringify({
+        v: 1,
+        savedAt: Date.now(),
+        step: 'type',
+        form: {
+          businessName: 'X',
+          logoUrl: '',
+          brandColor: '#d97706',
+          businessType: 'bakery',
+          currency: 'USD',
+        },
+      })
+    )
+
+    render(<OnboardingPage />)
+
+    await waitFor(() => screen.getByText(/what type of business/i))
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /start over and clear saved progress/i })
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/create your business/i)).toBeInTheDocument()
+    })
+    expect(localStorage.getItem(onboardingDraftStorageKey(TEST_USER.id))).toBeNull()
+  })
+})
+
+describe('OnboardingPage — step 1 (business name)', () => {
+  it('renders the business name input on first load', async () => {
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/create your business/i)).toBeInTheDocument()
+    })
     expect(screen.getByPlaceholderText(/sweet delights bakery/i)).toBeInTheDocument()
   })
 

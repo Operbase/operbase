@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +9,11 @@ import { Spinner } from '@/components/ui/spinner'
 import { toast } from 'sonner'
 import { Wheat, ArrowRight, ChevronLeft, Building2, Palette, Tag, DollarSign } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import {
+  clearOnboardingDraft,
+  loadOnboardingDraft,
+  saveOnboardingDraft,
+} from '@/lib/onboarding/draft-storage'
 
 const BUSINESS_TYPES = [
   { value: 'bakery', label: 'Bakery', emoji: '🥖', available: true },
@@ -43,6 +48,8 @@ type Step = 'business' | 'branding' | 'type'
 
 export default function OnboardingPage() {
   const router = useRouter()
+  const [userId, setUserId] = useState<string | null>(null)
+  const [hydrated, setHydrated] = useState(false)
   const [step, setStep] = useState<Step>('business')
   const [isLoading, setIsLoading] = useState(false)
   const [form, setForm] = useState({
@@ -52,9 +59,61 @@ export default function OnboardingPage() {
     businessType: 'bakery',
     currency: 'USD',
   })
+  const persistDraftRef = useRef(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const supabase = createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (cancelled) return
+      if (!user) {
+        setHydrated(true)
+        return
+      }
+      setUserId(user.id)
+      const draft = loadOnboardingDraft(user.id)
+      if (draft) {
+        setStep(draft.step)
+        setForm((prev) => ({ ...prev, ...draft.form }))
+        toast.message('Picked up where you left off', {
+          description: 'Progress is saved on this device.',
+        })
+      }
+      setHydrated(true)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hydrated || !userId || !persistDraftRef.current) return
+    const t = window.setTimeout(() => {
+      if (persistDraftRef.current) {
+        saveOnboardingDraft(userId, { step, form })
+      }
+    }, 400)
+    return () => window.clearTimeout(t)
+  }, [hydrated, userId, step, form])
 
   const steps: Step[] = ['business', 'branding', 'type']
   const stepIndex = steps.indexOf(step)
+
+  function handleStartOver() {
+    if (userId) clearOnboardingDraft(userId)
+    setStep('business')
+    setForm({
+      businessName: '',
+      logoUrl: '',
+      brandColor: '#d97706',
+      businessType: 'bakery',
+      currency: 'USD',
+    })
+    toast.success('Started fresh')
+  }
 
   async function handleFinish() {
     if (!form.businessName.trim()) {
@@ -91,6 +150,8 @@ export default function OnboardingPage() {
       if (rpcError) {
         // If user already has a business, just send them to the dashboard
         if (rpcError.message?.includes('already has a business')) {
+          persistDraftRef.current = false
+          clearOnboardingDraft(user.id)
           router.push('/dashboard')
           return
         }
@@ -98,6 +159,8 @@ export default function OnboardingPage() {
         throw new Error(rpcError.message ?? 'Failed to create business')
       }
 
+      persistDraftRef.current = false
+      clearOnboardingDraft(user.id)
       toast.success('Business created! Welcome to Operbase.')
       router.push('/dashboard')
       router.refresh()
@@ -329,6 +392,16 @@ export default function OnboardingPage() {
             </div>
           </div>
         )}
+
+        <p className="mt-8 text-center">
+          <button
+            type="button"
+            onClick={handleStartOver}
+            className="text-sm text-gray-400 hover:text-gray-600 underline-offset-2 hover:underline"
+          >
+            Start over and clear saved progress
+          </button>
+        </p>
       </div>
     </main>
   )
