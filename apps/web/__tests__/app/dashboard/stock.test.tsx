@@ -143,7 +143,7 @@ describe('StockPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /^stock$/i })).toBeInTheDocument()
       expect(
-        screen.getByText(/everything you buy and use/i)
+        screen.getByText(/Track what you buy and use/i)
       ).toBeInTheDocument()
     })
   })
@@ -237,7 +237,7 @@ describe('StockPage', () => {
     const dialog = await screen.findByRole('dialog')
 
     await user.type(within(dialog).getByPlaceholderText(/what do you call it/i), 'Butter')
-    await user.type(within(dialog).getByLabelText(/what you pay for one/i), '3')
+    await user.type(within(dialog).getByLabelText(/^price per unit$/i), '3')
     await user.click(within(dialog).getByRole('button', { name: /^save$/i }))
 
     await waitFor(() => {

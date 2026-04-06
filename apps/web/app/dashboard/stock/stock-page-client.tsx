@@ -394,8 +394,8 @@ export function StockPageClient({
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Stock</h1>
           <p className="text-gray-600 mt-1">
-            Everything you buy and use — ingredients like flour and sugar, packaging like boxes and bags.
-            Add items here first, then record restocks when you buy more. OB tracks what you have on hand.
+            Track what you buy and use. Add ingredients and packaging here — Operbase calculates your costs
+            automatically.
           </p>
         </div>
 
@@ -423,7 +423,7 @@ export function StockPageClient({
                   />
                 </div>
                 <div>
-                  <Label htmlFor="cost">What you pay for one ($)</Label>
+                  <Label htmlFor="cost">Price per unit</Label>
                   <Input
                     id="cost"
                     type="number"
@@ -435,7 +435,9 @@ export function StockPageClient({
                     placeholder="0"
                     className="min-h-11 text-base"
                   />
-                  <p className="text-xs text-gray-500 mt-1">One bag, one kilo, one box — whatever you buy.</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Amount in {currency} — one bag, one kilo, one box, whatever you buy.
+                  </p>
                 </div>
                 {!editingItem && (
                   <div>

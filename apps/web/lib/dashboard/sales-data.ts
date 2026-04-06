@@ -1,10 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { formatCurrency } from '@/lib/format-currency'
 
 const PAGE_SIZE = 50
 
 export type SalesRow = {
   id: string
   customer_name: string
+  product_name: string | null
   units_sold: number
   unit_price: number
   revenue: number
@@ -24,11 +26,14 @@ export type SalesBatchOptionRow = {
 export async function loadSalesInitial(
   supabase: SupabaseClient,
   businessId: string,
-  dateRange: 'all' | 'week' | 'month' = 'month'
+  dateRange: 'all' | 'week' | 'month' = 'month',
+  currency = 'USD'
 ): Promise<{ sales: SalesRow[]; batches: SalesBatchOptionRow[] }> {
   let salesQuery = supabase
     .from('sales')
-    .select('id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, batch_id, customers(name)')
+    .select(
+      'id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, batch_id, product_name, customers(name)'
+    )
     .eq('business_id', businessId)
 
   if (dateRange !== 'all') {
@@ -53,6 +58,7 @@ export async function loadSalesInitial(
     return {
       id: s.id as string,
       customer_name: c?.name ?? 'Walk-in',
+      product_name: (s.product_name as string | null) ?? null,
       units_sold: Number(s.units_sold),
       unit_price: Number(s.unit_price),
       revenue: Number(s.revenue),
@@ -72,7 +78,9 @@ export async function loadSalesInitial(
     return {
       id: b.id as string,
       label:
-        cpu != null ? `${name} (~$${cpu.toFixed(2)}/unit)` : `${name} (no batch cost)`,
+        cpu != null
+          ? `${name} (~${formatCurrency(cpu, currency)}/unit)`
+          : `${name} (no batch cost)`,
       units_produced: up,
       cost_of_goods: cost,
     }

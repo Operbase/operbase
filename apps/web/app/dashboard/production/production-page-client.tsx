@@ -281,18 +281,19 @@ export function ProductionPageClient({
 
   return (
     <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Baking</h1>
+          <p className="text-gray-600 mt-1">
+            Log every batch you bake here. Select which ingredients you used and how many units you made —
+            Operbase deducts the stock automatically and calculates your cost of production.{' '}
+            <Link href="/dashboard/stock" className="text-amber-700 underline font-medium">
+              Add ingredients first
+            </Link>{' '}
+            if you haven&apos;t already.
+          </p>
+        </div>
+
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Baking</h1>
-            <p className="text-gray-600 mt-1">
-              Log every batch you bake here. Select which ingredients you used and how many units you made —
-              OB deducts the stock automatically and calculates your cost of production.{' '}
-              <Link href="/dashboard/stock" className="text-amber-700 underline font-medium">
-                Add ingredients first
-              </Link>{' '}
-              if you haven&apos;t already.
-            </p>
-          </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button size="lg" className="bg-amber-600 hover:bg-amber-700 min-h-12 text-base shrink-0">
@@ -511,8 +512,9 @@ export function ProductionPageClient({
             {isLoading ? (
               <p className="text-center text-gray-500 py-8">Loading...</p>
             ) : batches.length === 0 ? (
-              <p className="text-center text-gray-500 py-8">
-                No batches yet. Click &quot;New Batch&quot; to get started.
+              <p className="text-center text-gray-500 py-8 max-w-lg mx-auto leading-relaxed">
+                No batches logged yet. Tap &quot;Log a batch&quot; to record what you baked — Operbase will
+                calculate your cost of production automatically.
               </p>
             ) : (
               <div className="overflow-x-auto">

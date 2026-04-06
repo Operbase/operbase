@@ -58,6 +58,7 @@ export function SalesPageClient({
   const [search, setSearch] = useState('')
   const [dateRange, setDateRange] = useState<'all' | 'week' | 'month'>('month')
   const [form, setForm] = useState({
+    productName: '',
     customerName: '',
     unitsSold: '',
     unitPrice: '',
@@ -77,7 +78,9 @@ export function SalesPageClient({
 
     let query = client
       .from('sales')
-      .select('id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, batch_id, customers(name)')
+      .select(
+        'id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, batch_id, product_name, customers(name)'
+      )
       .eq('business_id', businessId)
 
     // Date range filter
@@ -105,6 +108,7 @@ export function SalesPageClient({
         return {
           id: s.id as string,
           customer_name: c?.name ?? 'Walk-in',
+          product_name: (s.product_name as string | null) ?? null,
           units_sold: Number(s.units_sold),
           unit_price: Number(s.unit_price),
           revenue: Number(s.revenue),
@@ -140,14 +144,14 @@ export function SalesPageClient({
           id: b.id as string,
           label:
             cpu != null
-              ? `${name} (~$${cpu.toFixed(2)}/unit)`
+              ? `${name} (~${formatCurrency(cpu, currency)}/unit)`
               : `${name} (no batch cost)`,
           units_produced: up,
           cost_of_goods: cost,
         }
       })
     )
-  }, [businessId])
+  }, [businessId, currency])
 
   useEffect(() => {
     setSales(initialSales)
@@ -181,6 +185,7 @@ export function SalesPageClient({
   function openAdd() {
     setEditingSale(null)
     setForm({
+      productName: '',
       customerName: '',
       unitsSold: '',
       unitPrice: '',
@@ -193,6 +198,7 @@ export function SalesPageClient({
   function openEdit(sale: Sale) {
     setEditingSale(sale)
     setForm({
+      productName: sale.product_name ?? '',
       customerName: sale.customer_name === 'Walk-in' ? '' : sale.customer_name,
       unitsSold: sale.units_sold.toString(),
       unitPrice: sale.unit_price.toString(),
@@ -205,6 +211,12 @@ export function SalesPageClient({
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     if (!businessId || isSubmitting) return
+
+    const productName = form.productName.trim()
+    if (!productName) {
+      toast.error('What did you sell? Add a product name (e.g. croissants, sourdough loaf).')
+      return
+    }
 
     const units = parseFloat(form.unitsSold)
     const price = parseFloat(form.unitPrice)
@@ -250,6 +262,7 @@ export function SalesPageClient({
         business_id: businessId,
         customer_id: customerId,
         batch_id: batchId,
+        product_name: productName,
         units_sold: units,
         unit_price: price,
         sold_at: form.soldAt,
@@ -260,6 +273,7 @@ export function SalesPageClient({
         const { error } = await supabase
           .from('sales')
           .update({
+            product_name: productName,
             units_sold: units,
             unit_price: price,
             sold_at: form.soldAt,
@@ -324,8 +338,8 @@ export function SalesPageClient({
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Sales</h1>
           <p className="text-gray-600 mt-1">
-            Record every sale here — how many units, at what price, and who bought them.
-            OB calculates your revenue and profit automatically. Link a batch to track your cost of goods.
+            Record every sale here — what you sold, how many, at what price, and who bought them.
+            Operbase calculates your revenue and profit automatically. Link a batch to track your cost of goods.
           </p>
         </div>
 
@@ -367,6 +381,23 @@ export function SalesPageClient({
               </DialogHeader>
               <form noValidate onSubmit={handleSave} className="space-y-4">
                 <div>
+                  <Label htmlFor="productName" className="text-base">
+                    What did you sell?
+                  </Label>
+                  <Input
+                    id="productName"
+                    value={form.productName}
+                    onChange={(e) => setForm({ ...form, productName: e.target.value })}
+                    placeholder="e.g. Butter croissants, birthday cake"
+                    className="mt-2 min-h-11 text-base"
+                    required
+                    autoFocus
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Use any short name — this is how you&apos;ll see sales by product later.
+                  </p>
+                </div>
+                <div>
                   <Label htmlFor="units" className="text-base">
                     How many?
                   </Label>
@@ -404,7 +435,7 @@ export function SalesPageClient({
                     inputMode="decimal"
                     value={form.unitPrice}
                     onChange={(e) => setForm({ ...form, unitPrice: e.target.value })}
-                    placeholder="$ or type"
+                    placeholder={`${currency} or type`}
                     className="mt-2 min-h-11 text-base"
                   />
                 </div>
@@ -552,14 +583,16 @@ export function SalesPageClient({
             {isLoading ? (
               <p className="text-center text-gray-500 py-8">Loading...</p>
             ) : sales.length === 0 ? (
-              <p className="text-center text-gray-500 py-8">
-                No sales yet. Tap &quot;Log sale&quot;.
+              <p className="text-center text-gray-500 py-8 max-w-md mx-auto leading-relaxed">
+                No sales recorded yet. Tap &quot;Log sale&quot; — your revenue and profit will appear here
+                instantly.
               </p>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>Product</TableHead>
                       <TableHead>Customer</TableHead>
                       <TableHead>Units</TableHead>
                       <TableHead>Unit price</TableHead>
@@ -573,6 +606,9 @@ export function SalesPageClient({
                   <TableBody>
                     {filteredSales.map((sale) => (
                       <TableRow key={sale.id}>
+                        <TableCell className="font-medium">
+                          {sale.product_name?.trim() ? sale.product_name : '—'}
+                        </TableCell>
                         <TableCell className="font-medium">{sale.customer_name}</TableCell>
                         <TableCell>{sale.units_sold}</TableCell>
                         <TableCell>{formatCurrency(sale.unit_price, currency)}</TableCell>

@@ -11,7 +11,7 @@ vi.mock('recharts', () => ({
   YAxis: () => null,
   CartesianGrid: () => null,
   Tooltip: () => null,
-  PieChart: ({ children }: any) => <div data-testid="pie-chart">{children}</div>,
+  PieChart: () => null,
   Pie: () => null,
   Cell: () => null,
 }))
@@ -50,7 +50,12 @@ vi.mock('@/providers/business-provider', () => ({
 }))
 
 import { DashboardHomeClient } from '@/app/dashboard/dashboard-home-client'
-import type { DashboardMetrics, DashboardSpendRow, DashboardAlertItem } from '@/lib/dashboard/load-home-data'
+import type {
+  DashboardMetrics,
+  DashboardSpendRow,
+  DashboardAlertItem,
+  DashboardSalesPeriod,
+} from '@/lib/dashboard/load-home-data'
 
 const EMPTY_METRICS: DashboardMetrics = {
   totalRevenue: 0,
@@ -82,14 +87,19 @@ const ALERTS: DashboardAlertItem[] = [
 
 function renderHome(overrides?: Partial<{
   metrics: DashboardMetrics
+  metricsLifetime: DashboardMetrics
+  initialSalesPeriod: DashboardSalesPeriod
   monthlySpend: DashboardSpendRow[]
   alerts: DashboardAlertItem[]
   loadError: string | null
   userName: string
 }>) {
+  const metrics = overrides?.metrics ?? METRICS
   return render(
     <DashboardHomeClient
-      metrics={overrides?.metrics ?? METRICS}
+      metrics={metrics}
+      metricsLifetime={overrides?.metricsLifetime ?? metrics}
+      initialSalesPeriod={overrides?.initialSalesPeriod ?? 'month'}
       monthlySpend={overrides?.monthlySpend ?? []}
       alerts={overrides?.alerts ?? []}
       loadError={overrides?.loadError ?? null}
@@ -116,21 +126,24 @@ describe('DashboardHomeClient', () => {
     expect(screen.getByText(/Test Bakery/)).toBeTruthy()
   })
 
-  it('shows metric cards with formatted values', () => {
+  it('shows profit block with formatted values', () => {
     renderHome()
-    // Money in
+    expect(screen.getByText(/750/)).toBeTruthy()
     expect(screen.getByText(/1,200/)).toBeTruthy()
-    // Costs
     expect(screen.getByText(/450/)).toBeTruthy()
-    // Batches
     expect(screen.getByText('3')).toBeTruthy()
-    // Stock items
     expect(screen.getByText('12')).toBeTruthy()
   })
 
-  it('shows sales count under money-in card', () => {
+  it('shows sales count for selected period', () => {
     renderHome()
-    expect(screen.getByText('8 sales')).toBeTruthy()
+    expect(screen.getByText(/8 sales/)).toBeTruthy()
+  })
+
+  it('shows empty profit hero when there has never been a sale', () => {
+    renderHome({ metrics: EMPTY_METRICS, metricsLifetime: EMPTY_METRICS })
+    expect(screen.getByText(/Your profit will show here/)).toBeTruthy()
+    expect(screen.queryByTestId('bar-chart')).toBeNull()
   })
 
   it('renders GettingStartedHelper', () => {
@@ -208,9 +221,8 @@ describe('DashboardHomeClient', () => {
     expect(screen.getByText('Sales')).toBeTruthy()
   })
 
-  it('renders charts', () => {
+  it('renders the money snapshot bar chart', () => {
     renderHome()
     expect(screen.getByTestId('bar-chart')).toBeTruthy()
-    expect(screen.getByTestId('pie-chart')).toBeTruthy()
   })
 })

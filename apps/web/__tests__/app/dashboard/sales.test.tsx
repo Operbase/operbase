@@ -60,6 +60,7 @@ function toInitialSales(): SalesRow[] {
   return MOCK_SALES.map((s) => ({
     id: s.id,
     customer_name: (s.customers as { name?: string } | null)?.name ?? 'Walk-in',
+    product_name: 'Sourdough',
     units_sold: s.units_sold,
     unit_price: s.unit_price,
     revenue: s.revenue,
@@ -162,6 +163,7 @@ describe('SalesPage', () => {
     await user.click(screen.getByRole('button', { name: /log sale/i }))
     const dialog = await screen.findByRole('dialog')
 
+    await user.type(within(dialog).getByLabelText(/what did you sell/i), 'Bagels')
     await user.click(within(dialog).getByRole('button', { name: /^save sale$/i }))
 
     expect(toast.error).toHaveBeenCalledWith('Please enter valid units and price')
@@ -174,6 +176,7 @@ describe('SalesPage', () => {
     await user.click(screen.getByRole('button', { name: /log sale/i }))
     const dialog = await screen.findByRole('dialog')
 
+    await user.type(within(dialog).getByLabelText(/what did you sell/i), 'Muffins')
     await user.type(within(dialog).getByLabelText(/^how many/i), '5')
     await user.type(within(dialog).getByLabelText(/^price each/i), '10')
     await waitFor(() => {
@@ -212,6 +215,7 @@ describe('SalesPage', () => {
     await waitFor(() => screen.getByRole('dialog'))
 
     const dlg = await screen.findByRole('dialog')
+    await user.type(within(dlg).getByLabelText(/what did you sell/i), 'Danish')
     await user.type(within(dlg).getByLabelText(/^how many/i), '10')
     await user.type(within(dlg).getByLabelText(/^price each/i), '5')
     await user.click(within(dlg).getByRole('button', { name: /^save sale$/i }))
@@ -223,6 +227,7 @@ describe('SalesPage', () => {
           customer_id: null,
           batch_id: null,
           cogs: null,
+          product_name: 'Danish',
           units_sold: 10,
           unit_price: 5,
         })
@@ -275,6 +280,7 @@ describe('SalesPage', () => {
     await waitFor(() => screen.getByRole('dialog'))
 
     const dlg = await screen.findByRole('dialog')
+    await user.type(within(dlg).getByLabelText(/what did you sell/i), 'Custom cake')
     await user.click(within(dlg).getByText(/customer or batch/i))
     await user.type(within(dlg).getByPlaceholderText(/leave blank for walk-in/i), 'New Customer')
     await user.type(within(dlg).getByLabelText(/^how many/i), '3')

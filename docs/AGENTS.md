@@ -46,7 +46,7 @@ operbase/
 | Styling     | Tailwind CSS v4, shadcn/ui                |
 | Database    | Supabase (Postgres + Auth + RLS)          |
 | Auth        | Supabase Auth (email/password, Google OAuth on login) |
-| Charts      | Recharts (BarChart + PieChart on dashboard home) |
+| Charts      | Recharts (BarChart on dashboard home + sales page; PieChart removed) |
 | Testing     | Vitest + Testing Library + jsdom          |
 | Language    | TypeScript (strict mode)                  |
 | Deploy      | Vercel-friendly (default Next.js; set `NEXT_PUBLIC_SITE_URL` in prod for OG) |
@@ -87,6 +87,7 @@ cd apps/web && npm install
 #    packages/supabase/migrations/20260403000006_dashboard_rpcs.sql
 #    packages/supabase/migrations/20260403000007_rls_optimization.sql
 #    packages/supabase/migrations/20260403000008_fix_metrics_and_batch_items.sql
+#    packages/supabase/migrations/20260403000009_sales_product_name_dashboard_period.sql
 #    packages/supabase/seed/units.sql
 
 # 3. Start dev server
@@ -137,8 +138,8 @@ customers               ← per-business customer records
   id, business_id, name, phone, email
 
 sales                   ← revenue records
-  id, business_id, customer_id?, batch_id?, units_sold, unit_price,
-  revenue (computed), cogs, gross_profit (computed), sold_at
+  id, business_id, customer_id?, batch_id?, product_name (text, required for new rows),
+  units_sold, unit_price, revenue (computed), cogs, gross_profit (computed), sold_at
 
 subscriptions           ← recurring orders
   id, business_id, customer_id, product_id, quantity, frequency, next_due, unit_price

@@ -19,6 +19,8 @@ export default async function DashboardPage() {
   return (
     <DashboardHomeClient
       metrics={home.metrics}
+      metricsLifetime={home.metricsLifetime}
+      initialSalesPeriod={home.initialSalesPeriod}
       monthlySpend={home.monthlySpend}
       alerts={home.alerts}
       loadError={home.error}

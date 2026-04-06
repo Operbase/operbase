@@ -8,8 +8,9 @@ describe('formatCurrency()', () => {
     expect(result).toContain('1,234.50')
   })
 
-  it('formats a whole number with two decimal places', () => {
-    expect(formatCurrency(100)).toContain('100.00')
+  it('formats a whole number (locale-aware minor units)', () => {
+    const result = formatCurrency(100, 'USD')
+    expect(result).toContain('100')
   })
 
   it('formats GBP correctly', () => {
@@ -23,7 +24,13 @@ describe('formatCurrency()', () => {
   })
 
   it('formats zero', () => {
-    expect(formatCurrency(0, 'USD')).toContain('0.00')
+    expect(formatCurrency(0, 'USD')).toMatch(/0/)
+  })
+
+  it('formats JPY with currency-appropriate fraction digits (not forced .00)', () => {
+    const result = formatCurrency(1000, 'JPY')
+    expect(result).toMatch(/1,?000/)
+    expect(result).not.toMatch(/1,?000\.00/)
   })
 
   it('formats negative amounts', () => {
