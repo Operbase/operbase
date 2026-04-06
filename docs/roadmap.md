@@ -43,9 +43,11 @@ The long-term possibility — not a guarantee, but a direction worth building to
 
 **Solution Layer (Entry Points)**
 
-- Bakery (V1)  
-- Retail (Future)  
-- Services (Future)  
+- Bakery (V1) ✅  
+- Generic fallback — any business type (Phase 3.5)  
+- Retail / Services / Restaurant — vertical-specific language + presets on top of generic (Phase 3.5+)  
+
+The strategy is not to build a dedicated vertical per business type. The core engine is universal. Verticals are a config map (labels, presets, empty state copy) layered on top — not separate builds.
 
 ---
 
@@ -111,24 +113,92 @@ The long-term possibility — not a guarantee, but a direction worth building to
 
 ---
 
+### Phase 3.5 — Vertical Abstraction Layer
+
+**Goal:** Support any business type without building a separate vertical for each one
+
+**The problem it solves:**
+
+The bakery vertical is built on a generic data model — items, production runs, sales, profit. What makes it feel like a "bakery app" is just language and presets. Building a dedicated Retail vertical, then a Services vertical, then a Restaurant vertical is not scalable. The right move is to make the core configurable and ship a generic fallback that works for everyone else.
+
+**Approach:**
+
+- `business_type` already exists on `businesses` and is set at onboarding
+- Add a config map per `business_type` that drives UI language:
+  - Bakery → "ingredients", "batches", "baking"
+  - Retail → "products", "restocks", "orders"
+  - Services → "materials", "jobs", "services"
+  - Generic (default) → "items", "production runs", "sales"
+- Preset chips (common ingredients, common bakes) become vertical-specific addons — present for bakery, absent or different for others
+- Enable Retail + Services in the onboarding business type selector (currently disabled)
+- Any unrecognised `business_type` falls through to the generic config — no code change needed to support a new type at basic level
+
+**What does NOT change:**
+
+- DB schema — tables are already vertical-agnostic
+- Core profit engine — revenue, cogs, gross profit are universal
+- RLS and multi-tenancy — no impact
+
+**Data focus:**
+
+- Feature usage by business type (which vertical drives most engagement)
+- Activation rate by type (does a retailer complete the same onboarding steps as a bakery?)
+
+**Status:** Not started. `business_type` column and onboarding selector exist; non-bakery types are disabled. Estimated effort: 2–3 days once Phase 3 multi-user work is stable.
+
+---
+
 ### Phase 4 — Financial Layer
 
 **Goal:** Enable transactions and document generation  
 
 **Features:**
 
-- Payment methods (manual + gateway-ready)  
+- Payment methods — businesses configure how they accept payment (cash, bank transfer, POS, gateway)
+- Payment gateway integration — connect to Paystack, Flutterwave, or other gateways per business; each requires extra credentials stored securely per business
 - Invoicing — generate, send, and track invoices per customer/sale  
 - Document printing — any generated document (invoice, batch report, sales summary) printable as PDF  
-- Billing engine — charge businesses based on plan tier and feature access (see Phase 7)  
+- Billing engine — charge businesses based on plan tier and feature access (see Phase 8)  
+
+**Payment gateway integration model:**
+
+Two connection modes per business:
+
+**Mode 1 — Self-serve (business has existing gateway account)**
+Business pastes in their own API keys. Operbase stores them encrypted and handles all gateway communication on their behalf.
+
+| Gateway | Data needed |
+|---------|-------------|
+| Paystack | Secret key, public key, webhook secret |
+| Flutterwave | Secret key, public key, encryption key, webhook secret |
+| Manual / cash | No credentials — just a label and instructions |
+| Bank transfer | Account name, account number, bank name |
+
+**Mode 2 — Operbase-managed (we set it up for them)**
+Business does not have a gateway account. Operbase provisions one on their behalf using Paystack's or Flutterwave's sub-account / platform API. The business completes a KYC flow (name, bank account, BVN or equivalent) inside Operbase — we handle the gateway relationship and they receive payouts to their bank account.
+
+This model positions Operbase as a payment facilitator and enables a transaction fee revenue stream (take a small % of each payment processed through Operbase-managed gateways). Requires:
+- KYC data collection and storage (regulated — handle carefully, do not store raw BVN)
+- Sub-account creation via gateway platform API
+- Payout scheduling and reconciliation
+- Compliance: CBN regulations (Nigeria), relevant local rules per market
+
+**Design principles:**
+
+- Credentials are never exposed client-side — stored server-side only, referenced by a gateway connection ID
+- A business can have multiple active payment methods (e.g. cash + Paystack) — customer chooses at checkout
+- Gateway connection status (active, pending, disconnected) is surfaced in settings UI
+- Webhook handling is per-gateway — each has its own endpoint and signature verification
+- Payment gateway features are ecommerce-facing (Phase 5) but the connection and credential setup lives here in Phase 4
+- Operbase-managed mode is the higher-value path long term — it removes friction for small business owners who don't want to manage gateway accounts themselves
 
 **Data focus:**
 
-- Payment behavior  
-- Revenue patterns  
+- Payment method usage per business  
+- Gateway transaction success/failure rates  
 - Invoice status + aging  
 
-**Status:** Schema scaffolded (`payment_methods`, `business_payment_settings`). No UI.
+**Status:** Schema scaffolded (`payment_methods`, `business_payment_settings`). No UI. Gateway credential storage schema needs to be designed before implementation.
 
 ---
 
