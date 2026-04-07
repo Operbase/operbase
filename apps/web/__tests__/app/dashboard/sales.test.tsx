@@ -31,6 +31,9 @@ global.ResizeObserver = class ResizeObserver {
 import type { SalesRow } from '@/lib/dashboard/sales-data'
 import { SalesPageClient } from '@/app/dashboard/sales/sales-page-client'
 
+// computeAutoCogs queries 'batches' — mock it to return empty (no production logged)
+// so COGS = null in tests, matching existing sale fixture data
+
 const MOCK_SALES = [
   {
     id: 'sale-1',
@@ -67,12 +70,11 @@ function toInitialSales(): SalesRow[] {
     cogs: s.cogs,
     gross_profit: s.gross_profit,
     sold_at: s.sold_at,
-    batch_id: s.batch_id,
   }))
 }
 
 function renderSales() {
-  return render(<SalesPageClient initialSales={toInitialSales()} initialBatches={[]} />)
+  return render(<SalesPageClient initialSales={toInitialSales()} />)
 }
 
 function setupMocks() {
@@ -89,12 +91,8 @@ function setupMocks() {
       }
     }
     if (table === 'batches') {
-      return {
-        ...createQueryBuilder({ data: [] }),
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        order: vi.fn().mockResolvedValue({ data: [], error: null }),
-      }
+      // No batches → computeAutoCogs returns null → cogs: null on sale insert
+      return createQueryBuilder({ data: [] })
     }
     if (table === 'customers') {
       return {
@@ -199,12 +197,7 @@ describe('SalesPage', () => {
         }
       }
       if (table === 'batches') {
-        return {
-          ...createQueryBuilder({ data: [] }),
-          select: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockReturnThis(),
-          order: vi.fn().mockResolvedValue({ data: [], error: null }),
-        }
+        return createQueryBuilder({ data: [] })
       }
       return createQueryBuilder()
     })
@@ -225,8 +218,8 @@ describe('SalesPage', () => {
         expect.objectContaining({
           business_id: 'biz-123',
           customer_id: null,
-          batch_id: null,
-          cogs: null,
+          // batch_id removed — COGS is now automatic, no batch linking on sale form
+          cogs: null, // null because no batches exist in test
           product_name: 'Danish',
           units_sold: 10,
           unit_price: 5,
@@ -264,12 +257,7 @@ describe('SalesPage', () => {
         }
       }
       if (table === 'batches') {
-        return {
-          ...createQueryBuilder({ data: [] }),
-          select: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockReturnThis(),
-          order: vi.fn().mockResolvedValue({ data: [], error: null }),
-        }
+        return createQueryBuilder({ data: [] })
       }
       return createQueryBuilder()
     })
@@ -281,7 +269,7 @@ describe('SalesPage', () => {
 
     const dlg = await screen.findByRole('dialog')
     await user.type(within(dlg).getByLabelText(/what did you sell/i), 'Custom cake')
-    await user.click(within(dlg).getByText(/customer or batch/i))
+    await user.click(within(dlg).getByText(/customer \(optional\)/i))
     await user.type(within(dlg).getByPlaceholderText(/leave blank for walk-in/i), 'New Customer')
     await user.type(within(dlg).getByLabelText(/^how many/i), '3')
     await user.type(within(dlg).getByLabelText(/^price each/i), '12')

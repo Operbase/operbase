@@ -14,12 +14,11 @@ export default async function SalesPage() {
     redirect('/onboarding')
   }
 
-  const { sales, batches } = await loadSalesInitial(
+  const { sales } = await loadSalesInitial(
     ctx.supabase,
     ctx.business.businessId,
-    'month',
-    ctx.business.currency ?? 'USD'
+    'month'
   )
 
-  return <SalesPageClient initialSales={sales} initialBatches={batches} />
+  return <SalesPageClient initialSales={sales} />
 }

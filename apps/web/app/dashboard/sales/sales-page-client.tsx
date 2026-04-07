@@ -25,7 +25,6 @@ import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { useBusinessContext } from '@/providers/business-provider'
 import { formatCurrency } from '@/lib/format-currency'
-import { saleCogsFromBatch } from '@/lib/bakery/cost'
 import { trackEvent } from '@/lib/services/events'
 import { COMMON_SALE_AMOUNTS, COMMON_SALE_PRICES } from '@/lib/bakery/simple-presets'
 import { PriceChips, WholeNumberChips } from '@/components/bakery-quick-picks'
@@ -33,21 +32,17 @@ import { friendlyError } from '@/lib/errors'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import type { SalesRow, SalesBatchOptionRow } from '@/lib/dashboard/sales-data'
+import type { SalesRow } from '@/lib/dashboard/sales-data'
 
 type Sale = SalesRow
-type BatchOption = SalesBatchOptionRow
 
 export function SalesPageClient({
   initialSales,
-  initialBatches,
 }: {
   initialSales: SalesRow[]
-  initialBatches: SalesBatchOptionRow[]
 }) {
   const { businessId, currency } = useBusinessContext()
   const [sales, setSales] = useState<Sale[]>(initialSales)
-  const [batches, setBatches] = useState<BatchOption[]>(initialBatches)
   const [isLoading, setIsLoading] = useState(false)
   const skipSsrListFetch = useRef(true)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -63,7 +58,6 @@ export function SalesPageClient({
     unitsSold: '',
     unitPrice: '',
     soldAt: new Date().toISOString().split('T')[0],
-    batchId: '',
   })
 
   const supabase = useMemo(() => createClient(), [])
@@ -79,7 +73,7 @@ export function SalesPageClient({
     let query = client
       .from('sales')
       .select(
-        'id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, batch_id, product_name, customers(name)'
+        'id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, product_name, customers(name)'
       )
       .eq('business_id', businessId)
 
@@ -115,51 +109,15 @@ export function SalesPageClient({
           cogs: s.cogs != null ? Number(s.cogs) : null,
           gross_profit: s.gross_profit != null ? Number(s.gross_profit) : null,
           sold_at: s.sold_at as string,
-          batch_id: s.batch_id as string | null,
         }
       })
     )
     setIsLoading(false)
   }, [businessId, page, dateRange])
 
-  const fetchBatches = useCallback(async () => {
-    if (!businessId) return
-    const client = createClient()
-    const { data, error } = await client
-      .from('batches')
-      .select('id, notes, units_produced, cost_of_goods, products(name)')
-      .eq('business_id', businessId)
-      .order('produced_at', { ascending: false })
-
-    if (error) return
-
-    setBatches(
-      (data ?? []).map((b: Record<string, unknown>) => {
-        const p = b.products as { name?: string } | null
-        const name = p?.name ?? (b.notes as string) ?? 'Batch'
-        const cost = b.cost_of_goods != null ? Number(b.cost_of_goods) : null
-        const up = Number(b.units_produced)
-        const cpu = cost != null && up > 0 ? cost / up : null
-        return {
-          id: b.id as string,
-          label:
-            cpu != null
-              ? `${name} (~${formatCurrency(cpu, currency)}/unit)`
-              : `${name} (no batch cost)`,
-          units_produced: up,
-          cost_of_goods: cost,
-        }
-      })
-    )
-  }, [businessId, currency])
-
   useEffect(() => {
     setSales(initialSales)
   }, [initialSales])
-
-  useEffect(() => {
-    setBatches(initialBatches)
-  }, [initialBatches])
 
   useEffect(() => {
     if (!businessId) return
@@ -169,17 +127,35 @@ export function SalesPageClient({
       return
     }
     void fetchSales()
-    void fetchBatches()
-  }, [businessId, fetchSales, fetchBatches, page, dateRange])
+  }, [businessId, fetchSales, page, dateRange])
 
-  function computeCogs(
-    units: number,
-    batchId: string | null
-  ): number | null {
-    if (!batchId) return null
-    const b = batches.find((x) => x.id === batchId)
-    if (!b?.cost_of_goods || b.units_produced <= 0) return null
-    return saleCogsFromBatch(units, b.cost_of_goods, b.units_produced)
+  /**
+   * Weighted average COGS across all batches for this business.
+   * avg = SUM(cost_of_goods) / SUM(units_produced) across all batches.
+   * Returns null when no batch data exists (no production logged yet).
+   */
+  async function computeAutoCogs(unitsSold: number): Promise<number | null> {
+    if (!businessId) return null
+    const { data } = await supabase
+      .from('batches')
+      .select('cost_of_goods, units_produced')
+      .eq('business_id', businessId)
+      .gt('units_produced', 0)
+      .not('cost_of_goods', 'is', null)
+
+    if (!data || data.length === 0) return null
+
+    const totalCost = data.reduce(
+      (sum: number, b: { cost_of_goods: number }) => sum + b.cost_of_goods,
+      0
+    )
+    const totalUnits = data.reduce(
+      (sum: number, b: { units_produced: number }) => sum + b.units_produced,
+      0
+    )
+    if (totalUnits <= 0) return null
+
+    return (totalCost / totalUnits) * unitsSold
   }
 
   function openAdd() {
@@ -190,7 +166,6 @@ export function SalesPageClient({
       unitsSold: '',
       unitPrice: '',
       soldAt: new Date().toISOString().split('T')[0],
-      batchId: '',
     })
     setDialogOpen(true)
   }
@@ -203,7 +178,6 @@ export function SalesPageClient({
       unitsSold: sale.units_sold.toString(),
       unitPrice: sale.unit_price.toString(),
       soldAt: sale.sold_at.split('T')[0],
-      batchId: sale.batch_id ?? '',
     })
     setDialogOpen(true)
   }
@@ -226,16 +200,17 @@ export function SalesPageClient({
       return
     }
 
-    const batchId = form.batchId || null
-    const cogs = computeCogs(units, batchId)
     setIsSubmitting(true)
 
     try {
+      // Auto COGS: weighted average cost per unit across all batches × units sold.
+      // No user input needed — runs invisibly on every save.
+      const cogs = await computeAutoCogs(units)
+
       let customerId: string | null = null
 
       if (form.customerName.trim()) {
         const name = form.customerName.trim()
-        // Upsert pattern: try insert, handle conflict gracefully
         const { data: newCustomer, error: custError } = await supabase
           .from('customers')
           .insert({ business_id: businessId, name })
@@ -243,7 +218,6 @@ export function SalesPageClient({
           .single()
 
         if (custError?.code === '23505') {
-          // Unique violation — fetch existing
           const { data: existing } = await supabase
             .from('customers')
             .select('id')
@@ -258,36 +232,25 @@ export function SalesPageClient({
         }
       }
 
-      const payload = {
-        business_id: businessId,
-        customer_id: customerId,
-        batch_id: batchId,
-        product_name: productName,
-        units_sold: units,
-        unit_price: price,
-        sold_at: form.soldAt,
-        cogs,
-      }
-
       if (editingSale) {
         const { error } = await supabase
           .from('sales')
-          .update({
-            product_name: productName,
-            units_sold: units,
-            unit_price: price,
-            sold_at: form.soldAt,
-            batch_id: batchId,
-            cogs,
-          })
+          .update({ product_name: productName, units_sold: units, unit_price: price, sold_at: form.soldAt, cogs })
           .eq('id', editingSale.id)
-
         if (error) throw error
         toast.success('Sale updated!')
       } else {
-        const { error } = await supabase.from('sales').insert(payload)
+        const { error } = await supabase.from('sales').insert({
+          business_id: businessId,
+          customer_id: customerId,
+          product_name: productName,
+          units_sold: units,
+          unit_price: price,
+          sold_at: form.soldAt,
+          cogs,
+        })
         if (error) throw error
-        trackEvent('sale_recorded', businessId, { units_sold: payload.units_sold, revenue: payload.units_sold * payload.unit_price })
+        trackEvent('sale_recorded', businessId, { units_sold: units, revenue: units * price })
         toast.success('Sale recorded!')
       }
 
@@ -338,8 +301,8 @@ export function SalesPageClient({
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Sales</h1>
           <p className="text-gray-600 mt-1">
-            Record every sale here — what you sold, how many, at what price, and who bought them.
-            Operbase calculates your revenue and profit automatically. Link a batch to track your cost of goods.
+            Log what you sold, how many, at what price, and who bought (if you know). Operbase totals revenue
+            and profit for you. Cost of goods is calculated automatically from your batch history.
           </p>
         </div>
 
@@ -394,7 +357,7 @@ export function SalesPageClient({
                     autoFocus
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Use any short name — this is how you&apos;ll see sales by product later.
+                    Keep it short. You will use this name when you scan sales by product later.
                   </p>
                 </div>
                 <div>
@@ -445,18 +408,6 @@ export function SalesPageClient({
                     <strong className="text-lg">
                       {formatCurrency(parseFloat(form.unitsSold || '0') * parseFloat(form.unitPrice || '0'), currency)}
                     </strong>
-                    {form.batchId &&
-                      (() => {
-                        const c = computeCogs(
-                          parseFloat(form.unitsSold || '0'),
-                          form.batchId || null
-                        )
-                        return c != null ? (
-                          <span className="block mt-1 text-sm text-amber-900">
-                            Cost estimate: <strong>{formatCurrency(c, currency)}</strong>
-                          </span>
-                        ) : null
-                      })()}
                   </p>
                 )}
                 <div>
@@ -473,34 +424,16 @@ export function SalesPageClient({
                   />
                 </div>
                 <details className="text-sm border rounded-lg p-3 bg-gray-50">
-                  <summary className="cursor-pointer font-medium">Customer or batch (optional)</summary>
-                  <div className="space-y-3 mt-3 pt-2 border-t">
-                    <div>
-                      <Label htmlFor="customerName">Customer</Label>
-                      <Input
-                        id="customerName"
-                        value={form.customerName}
-                        onChange={(e) => setForm({ ...form, customerName: e.target.value })}
-                        placeholder="Leave blank for walk-in"
-                        className="min-h-11 mt-1"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="batchId">Link a batch (for cost tracking)</Label>
-                      <select
-                        id="batchId"
-                        value={form.batchId}
-                        onChange={(e) => setForm({ ...form, batchId: e.target.value })}
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-base min-h-11 mt-1"
-                      >
-                        <option value="">— none —</option>
-                        {batches.map((b) => (
-                          <option key={b.id} value={b.id}>
-                            {b.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                  <summary className="cursor-pointer font-medium">Customer (optional)</summary>
+                  <div className="mt-3 pt-2 border-t">
+                    <Label htmlFor="customerName">Customer name</Label>
+                    <Input
+                      id="customerName"
+                      value={form.customerName}
+                      onChange={(e) => setForm({ ...form, customerName: e.target.value })}
+                      placeholder="Leave blank for walk-in"
+                      className="min-h-11 mt-1"
+                    />
                   </div>
                 </details>
                 <Button
@@ -584,8 +517,8 @@ export function SalesPageClient({
               <p className="text-center text-gray-500 py-8">Loading...</p>
             ) : sales.length === 0 ? (
               <p className="text-center text-gray-500 py-8 max-w-md mx-auto leading-relaxed">
-                No sales recorded yet. Tap &quot;Log sale&quot; — your revenue and profit will appear here
-                instantly.
+                No sales yet. Tap Log sale when you ring one up. Revenue and profit show on this page and the
+                dashboard.
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -607,7 +540,7 @@ export function SalesPageClient({
                     {filteredSales.map((sale) => (
                       <TableRow key={sale.id}>
                         <TableCell className="font-medium">
-                          {sale.product_name?.trim() ? sale.product_name : '—'}
+                          {sale.product_name?.trim() ? sale.product_name : '-'}
                         </TableCell>
                         <TableCell className="font-medium">{sale.customer_name}</TableCell>
                         <TableCell>{sale.units_sold}</TableCell>
@@ -616,7 +549,7 @@ export function SalesPageClient({
                           {formatCurrency(sale.revenue, currency)}
                         </TableCell>
                         <TableCell>
-                          {sale.cogs != null ? formatCurrency(sale.cogs, currency) : '—'}
+                          {sale.cogs != null ? formatCurrency(sale.cogs, currency) : '-'}
                         </TableCell>
                         <TableCell>
                           {sale.gross_profit != null ? (
@@ -624,7 +557,7 @@ export function SalesPageClient({
                               {formatCurrency(sale.gross_profit, currency)}
                             </span>
                           ) : (
-                            '—'
+                            '-'
                           )}
                         </TableCell>
                         <TableCell>{new Date(sale.sold_at).toLocaleDateString()}</TableCell>
