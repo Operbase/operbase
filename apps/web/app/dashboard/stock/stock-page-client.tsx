@@ -71,6 +71,7 @@ export function StockPageClient({
   const [restockItem, setRestockItem] = useState<Item | null>(null)
   const [activeTab, setActiveTab] = useState<'ingredient' | 'packaging'>('ingredient')
   const [restockPurchaseQty, setRestockPurchaseQty] = useState('')
+  const [restockCostPerPurchase, setRestockCostPerPurchase] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [page, setPage] = useState(0)
   const PAGE_SIZE = 50
@@ -122,7 +123,7 @@ export function StockPageClient({
       .order('name')
 
     if (itemsError) {
-      toast.error(itemsError.message)
+      toast.error(friendlyError(itemsError, 'Failed to load items'))
       setIsLoading(false)
       return
     }
@@ -324,7 +325,14 @@ export function StockPageClient({
       setDialogOpen(false)
       fetchItems()
     } catch (error: unknown) {
-      toast.error(friendlyError(error, 'Failed to save'))
+      const code = (error as Record<string, unknown>)?.code
+      if (code === '23505') {
+        toast.error(
+          `You already have an item called "${form.name.trim()}". Use the Restock button to add more stock.`
+        )
+      } else {
+        toast.error(friendlyError(error, 'Failed to save'))
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -351,11 +359,16 @@ export function StockPageClient({
       return
     }
 
+    // Use the entered price; fall back to the stored price if blank
+    const enteredCost = parseFloat(restockCostPerPurchase)
+    const costPerPurchase =
+      enteredCost > 0 ? enteredCost : restockItem.cost_per_unit
+
     setIsSubmitting(true)
     try {
       const ratio = restockItem.conversion_ratio > 0 ? restockItem.conversion_ratio : 1
       const usageQty = usageQuantityFromPurchaseQty(purchaseQty, ratio)
-      const cpu = costPerUsageUnit(restockItem.cost_per_unit, ratio)
+      const cpu = costPerUsageUnit(costPerPurchase, ratio)
 
       const { error } = await supabase.from('stock_entries').insert({
         business_id: businessId,
@@ -368,10 +381,20 @@ export function StockPageClient({
 
       if (error) throw error
 
+      // Keep the item's cost_per_unit in sync with the latest purchase price
+      // so batch costing always uses the current market price
+      if (costPerPurchase !== restockItem.cost_per_unit) {
+        await supabase
+          .from('items')
+          .update({ cost_per_unit: costPerPurchase })
+          .eq('id', restockItem.id)
+      }
+
       trackEvent('stock_updated', businessId, { item_id: restockItem.id, quantity: usageQty })
       toast.success(`Added to ${restockItem.name}`)
       setRestockDialogOpen(false)
       setRestockPurchaseQty('')
+      setRestockCostPerPurchase('')
       fetchItems()
     } catch (error: unknown) {
       toast.error(friendlyError(error, 'Failed to restock'))
@@ -665,6 +688,7 @@ export function StockPageClient({
                                     onClick={() => {
                                       setRestockItem(item)
                                       setRestockPurchaseQty('')
+                                      setRestockCostPerPurchase(item.cost_per_unit.toString())
                                       setRestockDialogOpen(true)
                                     }}
                                   >
@@ -766,6 +790,24 @@ export function StockPageClient({
                   onChange={(e) => setRestockPurchaseQty(e.target.value)}
                   className="min-h-12 text-lg mt-1"
                   autoFocus
+                />
+              </div>
+              <div>
+                <Label htmlFor="restockCost" className="text-base">
+                  Price per {restockItem?.purchase_unit_name ?? 'unit'}
+                </Label>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Update if the price has changed since last time
+                </p>
+                <Input
+                  id="restockCost"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  inputMode="decimal"
+                  value={restockCostPerPurchase}
+                  onChange={(e) => setRestockCostPerPurchase(e.target.value)}
+                  className="min-h-11 mt-1"
                 />
               </div>
               <Button type="submit" size="lg" className="w-full bg-amber-600 hover:bg-amber-700 min-h-12 text-base" disabled={isSubmitting}>

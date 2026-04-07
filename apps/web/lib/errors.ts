@@ -30,6 +30,14 @@ export function friendlyError(
     return fallback
   }
 
+  // Postgres class 23 (integrity violations) — constraint names must never reach the UI
+  if (code.startsWith('23')) {
+    console.error('[db] Integrity error:', code, message)
+    if (code === '23505') return 'This already exists — check for duplicates.'
+    if (code === '23503') return 'This item is still in use and cannot be removed.'
+    return fallback
+  }
+
   // Our own RAISE EXCEPTION messages (P0001) — safe to show, we wrote them
   if (code === 'P0001' || code === '') {
     return message || fallback
