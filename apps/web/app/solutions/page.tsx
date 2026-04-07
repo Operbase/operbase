@@ -8,9 +8,9 @@ import { AnimateIn } from '@/components/landing/animate-in'
 import { bakerySolutions } from '@/components/landing/content'
 
 export const metadata: Metadata = {
-  title: 'Solutions — Operbase for bakeries',
+  title: 'Solutions | Operbase for bakeries',
   description:
-    'Operbase is built for bakeries first. Manage ingredients, log production batches, track sales, and see your real margin — all in one place.',
+    'Operbase starts with bakeries. Track ingredients, log batches, record sales, and see margin in one app.',
 }
 
 const navLinks = [
@@ -126,7 +126,7 @@ export default function SolutionsPage() {
                   {
                     step: '1',
                     title: 'Add your ingredients',
-                    body: 'Flour, butter, eggs, packaging — whatever you buy. Set purchase units (kg, pack) and recipe units (g, piece) once.',
+                    body: 'Flour, butter, eggs, packaging: whatever you buy. Set how you buy it (kg, pack) and how recipes use it (g, piece) once.',
                   },
                   {
                     step: '2',
@@ -177,7 +177,7 @@ export default function SolutionsPage() {
                 More verticals on the way
               </h2>
               <p className="mt-4 text-stone-600">
-                We are building Operbase one vertical at a time — so each one is done right, not just done.
+                We add verticals slowly on purpose so each one actually works, not just ships.
               </p>
             </div>
             <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

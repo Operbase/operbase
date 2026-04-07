@@ -26,7 +26,7 @@ export function LandingHero() {
           <AnimateIn delay={40} className="max-w-xl lg:max-w-none">
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-widest text-amber-800 shadow-sm sm:text-sm">
               <Sparkles className="h-3.5 w-3.5 text-amber-600" aria-hidden />
-              Business operating system
+              For makers and small shops
             </div>
             <h1
               id="landing-hero-heading"
@@ -40,8 +40,8 @@ export function LandingHero() {
               className="mt-6 max-w-lg text-pretty text-lg leading-relaxed text-stone-600 sm:text-xl sm:leading-relaxed"
               style={{ fontSize: 'clamp(1.05rem, 0.5vw + 1rem, 1.25rem)' }}
             >
-              Operbase connects stock, production, and sales so you always know what you have,
-              what it cost, and what you made.
+              Operbase ties stock, baking (or production), and sales together so you see what you have,
+              what it cost you, and what you actually made.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <Button

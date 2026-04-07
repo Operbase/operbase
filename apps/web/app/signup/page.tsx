@@ -64,7 +64,7 @@ export default function SignupPage() {
         accepted_terms_at: new Date().toISOString(),
         accepted_terms_version: '2026-04-05',
       })
-      toast.success('Account created! Check your email to verify, then sign in.')
+      toast.success('Account created. Check your email to verify, then sign in.')
       router.push('/login')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Signup failed')
@@ -103,8 +103,8 @@ export default function SignupPage() {
             </h2>
             <p className="text-gray-600">
               {step === 'account'
-                ? 'Get started managing your business today'
-                : 'Review before creating your account'}
+                ? 'Takes a minute. Then you set up your shop.'
+                : 'Check your email and password below'}
             </p>
             <div className="mt-4 flex gap-2">
               {steps.map((s, idx) => (
@@ -323,12 +323,12 @@ export default function SignupPage() {
           <div className="inline-block p-4 bg-white rounded-2xl shadow-lg mb-8">
             <Wheat className="text-amber-600" size={48} />
           </div>
-          <h3 className="text-3xl font-bold text-gray-900 mb-4">Built for small businesses</h3>
+          <h3 className="text-3xl font-bold text-gray-900 mb-4">Same app, whether you are solo or a small team</h3>
           <p className="text-gray-600 text-lg leading-relaxed mb-8">
-            Start growing your business with Operbase today
+            You will add your business name and currency right after email verification.
           </p>
           <div className="space-y-4">
-            {['Streamlined inventory management', 'Production tracking', 'Sales insights and analytics'].map((item) => (
+            {['Ingredients and packaging in one list', 'Log what you produced', 'Sales with profit visible on the dashboard'].map((item) => (
               <div key={item} className="flex items-start gap-3">
                 <div className="w-5 h-5 rounded-full bg-amber-600 flex items-center justify-center flex-shrink-0 mt-1">
                   <span className="text-white text-xs">✓</span>

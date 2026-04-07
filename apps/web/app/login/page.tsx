@@ -25,7 +25,7 @@ export default function LoginPage() {
 
     try {
       await signIn(email, password)
-      toast.success('Logged in successfully!')
+      toast.success('You are in.')
       router.push('/dashboard')
       router.refresh()
     } catch (error) {
@@ -59,7 +59,7 @@ export default function LoginPage() {
 
           <div className="mb-8">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">Welcome back</h2>
-            <p className="text-gray-600">Sign in to manage your business operations</p>
+            <p className="text-gray-600">Sign in to see your stock, batches, and sales.</p>
           </div>
 
           {/* Google Sign In */}
@@ -167,12 +167,12 @@ export default function LoginPage() {
           <div className="inline-block p-4 bg-white rounded-2xl shadow-lg mb-8">
             <Wheat className="text-amber-600" size={48} />
           </div>
-          <h3 className="text-3xl font-bold text-gray-900 mb-4">Manage your business, your way</h3>
+          <h3 className="text-3xl font-bold text-gray-900 mb-4">Know what you made, not just what you sold</h3>
           <p className="text-gray-600 text-lg leading-relaxed">
-            Track inventory, manage production, and grow your business with Operbase
+            Operbase links what you buy, what you bake or make, and what goes out the door.
           </p>
           <div className="mt-12 space-y-3">
-            {['Real-time inventory tracking', 'Production batch management', 'Sales and financial insights'].map((item) => (
+            {['Stock that matches the kitchen', 'Batches tied to real cost', 'Sales with margin in plain sight'].map((item) => (
               <div key={item} className="flex items-start gap-3">
                 <div className="w-5 h-5 rounded-full bg-amber-600 flex items-center justify-center flex-shrink-0 mt-1">
                   <span className="text-white text-xs">✓</span>

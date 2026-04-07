@@ -53,14 +53,14 @@ export const productPillars: { icon: LandingIcon; title: string; description: st
     icon: TrendingUp,
     title: 'Sales',
     description:
-      'Record sales in seconds. Compare revenue to cost so your margin is visible — not a monthly surprise.',
+      'Log a sale in a few taps. See revenue next to cost so your margin is not a surprise at month end.',
   },
 ]
 
 export const homepageSteps: { title: string; description: string }[] = [
   {
-    title: 'Set up your items',
-    description: 'Add ingredients, packaging, and how you count them. Do it once.',
+    title: 'List what you buy',
+    description: 'Ingredients, packaging, and the units you count in. Set it up once.',
   },
   {
     title: 'Log production',
@@ -107,7 +107,7 @@ export const productModules: {
     tagline: 'Know what you have. Act before you run out.',
     features: [
       'Track every ingredient and packaging item',
-      'Purchase units vs recipe units — no confusion',
+      'Buy in bags or kilos, use in grams or pieces. We keep both straight.',
       'Low-stock alerts before you hit zero',
       'Cost-per-unit calculated automatically',
     ],
@@ -140,7 +140,7 @@ export const productModules: {
     tagline: 'One screen. Everything that matters.',
     features: [
       'Revenue, cost, and gross profit at a glance',
-      'Low-stock alerts front and centre',
+      'Low-stock alerts up top where you see them',
       'Period-over-period trend bar chart',
       'Your business currency, not a default',
     ],
@@ -177,7 +177,7 @@ export const productFeatures: { icon: LandingIcon; title: string; description: s
   {
     icon: Zap,
     title: 'Fast by design',
-    description: 'Common actions — add stock, log a batch, record a sale — take under 10 seconds.',
+    description: 'Add stock, log a batch, or record a sale in under ten seconds when you are in a hurry.',
   },
 ]
 
@@ -187,7 +187,7 @@ export const bakerySolutions: { title: string; description: string }[] = [
   {
     title: 'Ingredients and packaging together',
     description:
-      'Flour, butter, boxes, stickers — one list with real quantities and the units you actually use.',
+      'Flour, butter, boxes, stickers: one list with real counts and the units you actually work in.',
   },
   {
     title: 'Batch costing that works',
@@ -197,7 +197,7 @@ export const bakerySolutions: { title: string; description: string }[] = [
   {
     title: 'Sales without a spreadsheet',
     description:
-      'Record what sold, at what price. Revenue vs cost appears instantly — no formulas needed.',
+      'Record what sold and at what price. Revenue and cost show up right away. No spreadsheet formulas.',
   },
   {
     title: 'Stock deducted on production',
@@ -222,7 +222,7 @@ export const pricingPlans: {
     name: 'Free',
     price: '$0',
     period: 'forever',
-    description: 'For owners who want to get their operations in order without a commitment.',
+    description: 'For owners who want the numbers tidy before they pay for anything.',
     features: [
       'Stock, production, and sales modules',
       'Up to 50 stock items',
@@ -256,7 +256,7 @@ export const pricingPlans: {
 export const pricingFaq: { question: string; answer: string }[] = [
   {
     question: 'Do I need a credit card to sign up?',
-    answer: 'No. Create an account and start using the free plan immediately — no card required.',
+    answer: 'No. Sign up free and start using the app. We do not ask for a card on the free plan.',
   },
   {
     question: 'What happens when I reach 50 stock items on the free plan?',

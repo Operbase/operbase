@@ -27,7 +27,7 @@ export default function NotFound() {
             Page not found
           </h1>
           <p className="text-stone-600 mb-8">
-            Sorry, we couldn't find the page you're looking for. It might have been moved or deleted.
+            That page is not here. The link may be old or the page moved. Try home or sign in below.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Button

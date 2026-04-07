@@ -53,7 +53,7 @@ describe('OnboardingPage — draft persistence', () => {
     render(<OnboardingPage />)
 
     await waitFor(() => {
-      expect(screen.getByText(/brand your business/i)).toBeInTheDocument()
+      expect(screen.getByText(/look and feel/i)).toBeInTheDocument()
     })
     const currency = screen.getByLabelText(/currency/i) as HTMLSelectElement
     expect(currency.value).toBe('EUR')
@@ -64,9 +64,9 @@ describe('OnboardingPage — draft persistence', () => {
     render(<OnboardingPage />)
     await user.type(screen.getByPlaceholderText(/sweet delights bakery/i), 'My Bakery')
     await user.click(screen.getByRole('button', { name: /next/i }))
-    await waitFor(() => screen.getByText(/brand your business/i))
+    await waitFor(() => screen.getByText(/look and feel/i))
     await user.click(screen.getByRole('button', { name: /next/i }))
-    await waitFor(() => screen.getByText(/what type of business/i))
+    await waitFor(() => screen.getByText(/what kind of business is it/i))
 
     mockSupabaseClient.rpc = vi.fn().mockResolvedValue({ data: 'biz-456', error: null })
 
@@ -97,14 +97,14 @@ describe('OnboardingPage — draft persistence', () => {
 
     render(<OnboardingPage />)
 
-    await waitFor(() => screen.getByText(/what type of business/i))
+    await waitFor(() => screen.getByText(/what kind of business is it/i))
 
     await userEvent.click(
       screen.getByRole('button', { name: /start over and clear saved progress/i })
     )
 
     await waitFor(() => {
-      expect(screen.getByText(/create your business/i)).toBeInTheDocument()
+      expect(screen.getByText(/name your business/i)).toBeInTheDocument()
     })
     expect(localStorage.getItem(onboardingDraftStorageKey(TEST_USER.id))).toBeNull()
   })
@@ -115,7 +115,7 @@ describe('OnboardingPage — step 1 (business name)', () => {
     render(<OnboardingPage />)
 
     await waitFor(() => {
-      expect(screen.getByText(/create your business/i)).toBeInTheDocument()
+      expect(screen.getByText(/name your business/i)).toBeInTheDocument()
     })
     expect(screen.getByPlaceholderText(/sweet delights bakery/i)).toBeInTheDocument()
   })
@@ -126,7 +126,7 @@ describe('OnboardingPage — step 1 (business name)', () => {
 
     await user.click(screen.getByRole('button', { name: /next/i }))
 
-    expect(toast.error).toHaveBeenCalledWith('Please enter your business name')
+    expect(toast.error).toHaveBeenCalledWith('Add your business name to continue.')
   })
 
   it('advances to branding step when name is filled', async () => {
@@ -137,7 +137,7 @@ describe('OnboardingPage — step 1 (business name)', () => {
     await user.click(screen.getByRole('button', { name: /next/i }))
 
     await waitFor(() => {
-      expect(screen.getByText(/brand your business/i)).toBeInTheDocument()
+      expect(screen.getByText(/look and feel/i)).toBeInTheDocument()
     })
   })
 })
@@ -148,7 +148,7 @@ describe('OnboardingPage — step 2 (branding)', () => {
     render(<OnboardingPage />)
     await user.type(screen.getByPlaceholderText(/sweet delights bakery/i), 'My Bakery')
     await user.click(screen.getByRole('button', { name: /next/i }))
-    await waitFor(() => screen.getByText(/brand your business/i))
+    await waitFor(() => screen.getByText(/look and feel/i))
     return user
   }
 
@@ -161,13 +161,13 @@ describe('OnboardingPage — step 2 (branding)', () => {
   it('can go back to step 1', async () => {
     const user = await goToBranding()
     await user.click(screen.getByRole('button', { name: /back/i }))
-    await waitFor(() => screen.getByText(/create your business/i))
+    await waitFor(() => screen.getByText(/name your business/i))
   })
 
   it('advances to business type step', async () => {
     const user = await goToBranding()
     await user.click(screen.getByRole('button', { name: /next/i }))
-    await waitFor(() => screen.getByText(/what type of business/i))
+    await waitFor(() => screen.getByText(/what kind of business is it/i))
   })
 })
 
@@ -177,9 +177,9 @@ describe('OnboardingPage — step 3 (business type)', () => {
     render(<OnboardingPage />)
     await user.type(screen.getByPlaceholderText(/sweet delights bakery/i), 'My Bakery')
     await user.click(screen.getByRole('button', { name: /next/i }))
-    await waitFor(() => screen.getByText(/brand your business/i))
+    await waitFor(() => screen.getByText(/look and feel/i))
     await user.click(screen.getByRole('button', { name: /next/i }))
-    await waitFor(() => screen.getByText(/what type of business/i))
+    await waitFor(() => screen.getByText(/what kind of business is it/i))
     return user
   }
 

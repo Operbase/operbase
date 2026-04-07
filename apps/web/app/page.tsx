@@ -2,11 +2,11 @@ import type { Metadata } from 'next'
 import { LandingPage } from '@/components/landing/landing-page'
 
 export const metadata: Metadata = {
-  title: 'Operbase — Stock, production, and sales for small businesses',
+  title: 'Operbase | Stock, baking, and sales for small businesses',
   description:
-    'Run inventory, production batches, and sales in one simple system. Built for bakeries first — know your real profit without spreadsheet chaos.',
+    'Track ingredients, log batches, and record sales in one place. Built with bakeries in mind. See real profit without living in spreadsheets.',
   openGraph: {
-    title: 'Operbase — Operations for small businesses',
+    title: 'Operbase | Operations for small businesses',
     description:
       'Track stock, record production, and log sales. One workspace for owners who want clarity.',
     type: 'website',

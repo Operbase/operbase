@@ -38,8 +38,12 @@ The long-term possibility — not a guarantee, but a direction worth building to
 - Invoicing + Document Printing  
 - Globalisation (tax, multi-location, multi-country)  
 - AI Insights  
+- **Operbase MCP** — a Model Context Protocol server exposing safe, business-scoped tools so **any MCP-capable client** (Cursor, Claude Desktop, custom apps) can query and act on behalf of an authenticated business *(see Phase 7)*  
+- **Agents** — autonomous or semi-autonomous workflows on top of the same capabilities (often MCP + server-side orchestration) *(see Phase 7)*  
+- **In-app AI chatbot** — guided Q&A and actions inside the web app for owners who do not use external MCP clients *(see Phase 7)*  
 - Platform Billing  
 - Customer Acquisition Network *(long-term vision — see Phase 9)*  
+- **CRM integrations** *(exploratory)* — sync customers/leads with external CRMs when a clear operator use case emerges; not committed *(see “Integrations (exploratory)” below)*  
 
 **Solution Layer (Entry Points)**
 
@@ -48,6 +52,10 @@ The long-term possibility — not a guarantee, but a direction worth building to
 - Retail / Services / Restaurant — vertical-specific language + presets on top of generic (Phase 3.5+)  
 
 The strategy is not to build a dedicated vertical per business type. The core engine is universal. Verticals are a config map (labels, presets, empty state copy) layered on top — not separate builds.
+
+### Integrations (exploratory)
+
+**CRM (e.g. HubSpot, Zoho, generic webhooks)** — *possible, not planned.* Operbase already has `customers` and sales context; a CRM link might help businesses that live in both tools. **Use cases are not defined yet** — treat this as a discovery item: interview operators, then decide sync direction (one-way export vs. two-way), objects (contacts only vs. deals), and whether it belongs in Phase 4 (financial) or Phase 5 (ecommerce). **Do not build until the use case is explicit.**
 
 ---
 
@@ -249,22 +257,32 @@ This model positions Operbase as a payment facilitator and enables a transaction
 
 ---
 
-### Phase 7 — Intelligence Layer
+### Phase 7 — Intelligence, MCP, Agents & In-App AI
 
-**Goal:** Smart insights  
+**Goal:** Make Operbase operable by humans *and* by AI systems — insights in the product, plus a **client-agnostic MCP surface** and optional **agents** and **chatbot** UX.
 
-**Features:**
+**Why MCP first**
 
-- AI recommendations  
-- Profit insights  
-- Cost optimization  
+- One well-designed **Operbase MCP server** (tools/resources scoped by `business_id` + auth) lets **any** MCP host attach: IDEs, desktop assistants, mobile experiments, partner integrations.  
+- **Agents** (multi-step automation, scheduled jobs, “record this sale from voice note”) should call the **same** underlying contracts as MCP — avoid duplicating business logic in prompt-only paths.  
+- **In-app chatbot** is the friendly surface for non-technical owners; it should use the same tool layer as MCP where possible, not a separate shadow API.
 
-**Data focus:**
+**Features (ordered roughly by dependency)**
+
+| Track | What | Notes |
+|--------|------|--------|
+| **MCP server** | Expose vetted tools (read stock levels, summarize dashboard, draft sale line items, etc.) with strict auth and RLS-aligned behavior | Ship read-only or low-risk tools first; mutating tools behind confirmation patterns |
+| **Agents** | Orchestrated flows: e.g. weekly profit summary, low-stock digest, “close the day” checklist | Requires reliable tool contracts + logging/audit |
+| **In-app AI chatbot** | Embedded assistant on dashboard / key pages | Same tool backend as MCP; different UI and rate limits |
+| **Insights (classic)** | AI recommendations, profit/cost narratives, anomaly hints | Can consume the same analytics RPCs as today + event data |
+
+**Data focus**
 
 - Historical trends  
 - Predictive patterns  
+- Tool invocation logs (which tools, which business, success/failure) — for safety and billing later  
 
-**Status:** Not started.
+**Status:** Not started. **Scope guard:** do not ship MCP/agents/chatbot until Phase 1–3 foundations are stable and auth + tenant boundaries are non-negotiable in the tool layer.
 
 ---
 
@@ -285,6 +303,19 @@ This model positions Operbase as a payment facilitator and enables a transaction
 - Never gate Phase 1 core features (stock, production, sales) for existing users — grandfather them  
 - Advanced features (multi-location, tax filing, invoice generation, ecommerce) are paid-tier  
 - Billing is per business, not per user seat (at least initially)  
+
+**Fee models — research (not a committed design)**
+
+Several monetisation shapes are on the table; **none is chosen**. Validate with real operators before locking schema or UX:
+
+| Idea | Question to answer |
+|------|---------------------|
+| **Platform / take rate** | Small % on payments processed through Operbase-managed gateways (already noted in Phase 4) — aligns when we facilitate money movement |
+| **Per-user (seat) fee** | Makes sense when Phase 2 multi-user is mature and larger teams drive cost |
+| **Product-combination or bundle fee** | Charge differently when certain *combinations* of modules/features are enabled (e.g. inventory + ecommerce + AI) — needs clear packaging, not ad-hoc SQL |
+| **User-defined “fee flow”** | Let a business configure rules like “when products A+B appear on an order, apply fee X” — powerful for franchises/marketplaces but high complexity; might overlap with tax/discount engines (Phase 6) |
+
+**Open concern:** A custom fee-flow builder can become a second product (rules engine, audits, disputes). Prefer **one simple primary model** (e.g. tier + optional take rate) until revenue proves the need for composable fees.
 
 **Status:** Not started. `businesses.plan` column and `feature_flags`/`business_feature_flags` tables are schema-ready.
 
@@ -421,6 +452,21 @@ Endpoints:
 
 ---
 
+#### 6. MCP & Agent Gateway (Future — Phase 7)
+
+Handles: exposing **tools** (and optionally resources) to MCP hosts and to the in-app chatbot with identical authorization.
+
+Conceptual responsibilities:
+
+- Authenticate the caller (OAuth / API key / session bridge — TBD)  
+- Resolve `business_id` and enforce the same constraints as RLS-facing RPCs  
+- Map stable tool names to internal services (inventory, production, sales, profit)  
+- Audit log for mutating tools  
+
+**Status:** Not started. See Phase 7.
+
+---
+
 ## 6. API Evolution Strategy
 
 **Stage 1 (Now)**
@@ -436,11 +482,13 @@ Endpoints:
 **Stage 3**
 
 - Expose selected APIs publicly (e.g. Next.js `/api/v1/` calling the same RPCs)  
+- **Operbase MCP** (Phase 7) as a parallel surface: same business rules and auth as HTTP APIs, packaged for MCP clients — not a separate logic fork  
 
 **Potential API products**
 
 - Profit Calculation API  
 - Inventory + Unit Conversion API  
+- **MCP tool bundles** (read-only analytics pack vs. operations pack) — productisation TBD after Phase 7 MVP  
 
 ---
 
@@ -519,6 +567,7 @@ This section must be completed **before any paid plan is offered or user data is
 | Legal exposure (GDPR/NDPR) | Implement terms, privacy policy, cookie consent, and account deletion before scaling — see Section 8 |
 | Hosting cost spike | Vercel team Pro when revenue justifies; one plan covers all projects under the org |
 | Customer network becomes a data trust problem | Be transparent from day one that operational data informs matching; never sell raw data; success fee model keeps incentives aligned |
+| MCP / agents exfiltrate or corrupt tenant data | Ship read-only tools first; mutating tools behind explicit human confirmation; audit logs; same RLS rules as the app — never bypass `business_id` |
 
 ---
 

@@ -42,7 +42,7 @@ const MOCK_BATCHES = [
     units_produced: 100,
     units_remaining: 100,
     cost_of_goods: null,
-    notes: 'Croissants — batch #002',
+    notes: 'Croissants · batch #002',
     produced_at: '2026-04-02T08:00:00Z',
   },
 ]
@@ -109,7 +109,7 @@ describe('ProductionPage', () => {
     renderProduction()
     expect(screen.getByRole('heading', { name: /^baking$/i })).toBeInTheDocument()
     expect(
-      screen.getByText(/log every batch you bake here/i)
+      screen.getByText(/log each bake here/i)
     ).toBeInTheDocument()
   })
 
@@ -122,7 +122,7 @@ describe('ProductionPage', () => {
     renderProduction()
     await waitFor(() => {
       expect(screen.getByText('Sourdough Bread')).toBeInTheDocument()
-      expect(screen.getByText('Croissants — batch #002')).toBeInTheDocument()
+      expect(screen.getByText('Croissants · batch #002')).toBeInTheDocument()
     })
   })
 
@@ -202,7 +202,7 @@ describe('ProductionPage', () => {
           p_lines: [],
         })
       )
-      expect(toast.success).toHaveBeenCalledWith('Batch created — stock deducted.')
+      expect(toast.success).toHaveBeenCalledWith('Batch saved. Stock updated.')
     })
   })
 

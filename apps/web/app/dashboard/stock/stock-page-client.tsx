@@ -152,8 +152,8 @@ export function StockPageClient({
           unit_id: row.unit_id as string | null,
           purchase_unit_id: row.purchase_unit_id as string | null,
           usage_unit_id: row.usage_unit_id as string | null,
-          purchase_unit_name: purchaseUnit?.name ?? '—',
-          usage_unit_name: usageUnit?.name ?? '—',
+          purchase_unit_name: purchaseUnit?.name ?? '',
+          usage_unit_name: usageUnit?.name ?? '',
           conversion_ratio: Number(row.conversion_ratio ?? 1),
           cost_per_unit: Number(row.cost_per_unit ?? 0),
           quantity_on_hand: stockMap.get(row.id as string) ?? 0,
@@ -417,8 +417,8 @@ export function StockPageClient({
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Stock</h1>
           <p className="text-gray-600 mt-1">
-            Track what you buy and use. Add ingredients and packaging here — Operbase calculates your costs
-            automatically.
+            Track what you buy and use. Add ingredients and packaging here. Operbase figures your costs for
+            you.
           </p>
         </div>
 
@@ -459,7 +459,7 @@ export function StockPageClient({
                     className="min-h-11 text-base"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Amount in {currency} — one bag, one kilo, one box, whatever you buy.
+                    Enter the price in {currency} for one bag, kilo, box, or whatever you buy.
                   </p>
                 </div>
                 {!editingItem && (
@@ -485,7 +485,7 @@ export function StockPageClient({
 
                 <details className="text-sm border rounded-lg p-3 bg-gray-50">
                   <summary className="cursor-pointer font-medium text-gray-800 py-1">
-                    Advanced — different buy vs recipe units
+                    Advanced: buy unit vs recipe unit
                   </summary>
                   <div className="space-y-3 pt-3 mt-2 border-t">
                     <div className="grid grid-cols-1 gap-3">
@@ -497,7 +497,7 @@ export function StockPageClient({
                           onChange={(e) => setForm({ ...form, purchaseUnitId: e.target.value })}
                           className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-base min-h-11"
                         >
-                          <option value="">— choose —</option>
+                          <option value="">Select unit</option>
                           {units.map((u) => (
                             <option key={u.id} value={u.id}>
                               {u.name}
@@ -513,7 +513,7 @@ export function StockPageClient({
                           onChange={(e) => setForm({ ...form, usageUnitId: e.target.value })}
                           className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-base min-h-11"
                         >
-                          <option value="">— choose —</option>
+                          <option value="">Select unit</option>
                           {units.map((u) => (
                             <option key={u.id} value={u.id}>
                               {u.name}
@@ -745,7 +745,7 @@ export function StockPageClient({
         <Dialog open={restockDialogOpen} onOpenChange={setRestockDialogOpen}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle className="text-xl">Add stock — {restockItem?.name}</DialogTitle>
+              <DialogTitle className="text-xl">Add stock: {restockItem?.name}</DialogTitle>
             </DialogHeader>
             <form noValidate onSubmit={handleRestock} className="space-y-4">
               <p className="text-sm text-gray-600">

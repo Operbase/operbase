@@ -93,7 +93,7 @@ export function ProductionPageClient({
           id: row.id as string,
           name: row.name as string,
           type: row.type as string,
-          usage_unit_name: uu?.name ?? '—',
+          usage_unit_name: uu?.name ?? '',
         }
       })
     )
@@ -210,7 +210,7 @@ export function ProductionPageClient({
     try {
       if (editingBatch) {
         const extra = form.notes.trim()
-        const notes = `${form.productName.trim()}${extra ? ' — ' + extra : ''}`
+        const notes = `${form.productName.trim()}${extra ? ' · ' + extra : ''}`
         const { error } = await client
           .from('batches')
           .update({
@@ -236,7 +236,7 @@ export function ProductionPageClient({
         if (error) throw error
         if (!batchId) throw new Error('No batch id returned')
         trackEvent('batch_created', businessId, { batch_id: batchId, units_produced: units })
-        toast.success('Batch created — stock deducted.')
+        toast.success('Batch saved. Stock updated.')
       }
 
       setDialogOpen(false)
@@ -284,8 +284,8 @@ export function ProductionPageClient({
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Baking</h1>
           <p className="text-gray-600 mt-1">
-            Log every batch you bake here. Select which ingredients you used and how many units you made —
-            Operbase deducts the stock automatically and calculates your cost of production.{' '}
+            Log each bake here. Say which ingredients you used and how many units you made. Operbase pulls
+            stock down and works out production cost.{' '}
             <Link href="/dashboard/stock" className="text-amber-700 underline font-medium">
               Add ingredients first
             </Link>{' '}
@@ -406,7 +406,7 @@ export function ProductionPageClient({
                             }}
                             className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-base min-h-11"
                           >
-                            <option value="">— choose ingredient —</option>
+                            <option value="">Pick an ingredient</option>
                             {stockItems.map((it) => (
                               <option key={it.id} value={it.id}>
                                 {it.name} · {it.usage_unit_name}
@@ -513,8 +513,8 @@ export function ProductionPageClient({
               <p className="text-center text-gray-500 py-8">Loading...</p>
             ) : batches.length === 0 ? (
               <p className="text-center text-gray-500 py-8 max-w-lg mx-auto leading-relaxed">
-                No batches logged yet. Tap &quot;Log a batch&quot; to record what you baked — Operbase will
-                calculate your cost of production automatically.
+                No batches yet. Tap Log a batch when you finish a run. We will work out production cost from
+                the ingredients you pick.
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -545,10 +545,10 @@ export function ProductionPageClient({
                           <TableCell>{batch.units_produced}</TableCell>
                           <TableCell>{batch.units_remaining}</TableCell>
                           <TableCell>
-                            {batch.cost_of_goods != null ? formatCurrency(cogs, currency) : '—'}
+                            {batch.cost_of_goods != null ? formatCurrency(cogs, currency) : '-'}
                           </TableCell>
                           <TableCell>
-                            {batch.cost_of_goods != null ? formatCurrency(cpu, currency) : '—'}
+                            {batch.cost_of_goods != null ? formatCurrency(cpu, currency) : '-'}
                           </TableCell>
                           <TableCell>{new Date(batch.produced_at).toLocaleDateString()}</TableCell>
                           <TableCell>

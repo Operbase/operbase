@@ -90,7 +90,7 @@ function DashboardLayoutInner({ children, userEmail, userName }: DashboardLayout
   async function handleLogout() {
     try {
       await signOut()
-      toast.success('Logged out successfully')
+      toast.success('Signed out.')
       router.push('/login')
       router.refresh()
     } catch {
@@ -158,7 +158,7 @@ function DashboardLayoutInner({ children, userEmail, userName }: DashboardLayout
         <div className="flex items-center justify-between gap-2">
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-900 truncate">{displayName}</p>
-            <p className="text-xs text-gray-500 truncate">{displayEmail || '—'}</p>
+            <p className="text-xs text-gray-500 truncate">{displayEmail || ''}</p>
           </div>
           <div className="flex items-center gap-1">
             <Button

@@ -149,7 +149,7 @@ export async function loadDashboardHomeData(
               id: a.item_id,
               name: a.item_name,
               quantity_on_hand: Number(a.quantity_on_hand ?? 0),
-              usage_unit_name: a.usage_unit_name ?? '—',
+              usage_unit_name: a.usage_unit_name ?? '',
               reason: a.reason ?? 'Low stock',
             })
           )

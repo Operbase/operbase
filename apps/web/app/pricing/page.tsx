@@ -9,7 +9,7 @@ import { pricingPlans, pricingFaq } from '@/components/landing/content'
 import { cn } from '@/lib/utils'
 
 export const metadata: Metadata = {
-  title: 'Pricing — Operbase',
+  title: 'Pricing | Operbase',
   description:
     'Free to start. Upgrade when your business grows. No credit card required to get going.',
 }

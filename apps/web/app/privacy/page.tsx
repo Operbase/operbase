@@ -3,7 +3,7 @@ import Navbar from '@/components/shared/navbar'
 import Footer from '@/components/shared/footer'
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy — Operbase',
+  title: 'Privacy Policy | Operbase',
   description: 'How Operbase collects, uses, and protects your data.',
 }
 
@@ -39,7 +39,7 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-semibold text-gray-900 mb-3">2. What data we collect</h2>
             <ul className="list-disc pl-5 space-y-2">
               <li>
-                <strong>Account data:</strong> email address, password (hashed — we never see the plaintext),
+                <strong>Account data:</strong> email address, password (hashed; we never see the plaintext),
                 and the date you accepted these terms.
               </li>
               <li>
@@ -60,7 +60,7 @@ export default function PrivacyPage() {
               </li>
             </ul>
             <p className="mt-3">
-              We do <strong>not</strong> collect payment card details — any future payment processing will
+              We do <strong>not</strong> collect payment card details. Any future payment processing will
               be handled entirely by certified third-party gateways.
             </p>
           </section>
@@ -106,16 +106,16 @@ export default function PrivacyPage() {
             <p>We do not sell your data. We share it only with:</p>
             <ul className="list-disc pl-5 space-y-2 mt-2">
               <li>
-                <strong>Supabase Inc.</strong> — our database and authentication provider, acting as a
+                <strong>Supabase Inc.</strong>, our database and authentication provider, acting as a
                 data processor under a Data Processing Agreement. Data is stored on servers in the EU
                 (Frankfurt region by default). Supabase is SOC 2 Type II certified.
               </li>
               <li>
-                <strong>Vercel Inc.</strong> — our hosting provider. Processes request/response data in
+                <strong>Vercel Inc.</strong>, our hosting provider. It processes request/response data in
                 order to serve the application.
               </li>
               <li>
-                <strong>Legal authorities</strong> — where required by law or to protect our rights.
+                <strong>Legal authorities</strong> when the law requires it or to protect our rights.
               </li>
             </ul>
           </section>
@@ -132,7 +132,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-xl font-semibold text-gray-900 mb-3">6. Cookies</h2>
             <p>
-              We use <strong>strictly necessary cookies only</strong> — specifically the session cookie set
+              We use <strong>strictly necessary cookies only</strong>, specifically the session cookie set
               by Supabase Auth to keep you signed in. This cookie is essential to the service and does not
               require your consent under GDPR or NDPR.
             </p>
@@ -146,12 +146,12 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-semibold text-gray-900 mb-3">7. Your rights</h2>
             <p>Under GDPR (if you are in the EU/EEA) and NDPR (if you are in Nigeria), you have the right to:</p>
             <ul className="list-disc pl-5 space-y-2 mt-2">
-              <li><strong>Access</strong> — request a copy of your personal data.</li>
-              <li><strong>Correction</strong> — ask us to correct inaccurate data.</li>
-              <li><strong>Erasure</strong> — request deletion of your personal data (&ldquo;right to be forgotten&rdquo;).</li>
-              <li><strong>Portability</strong> — receive your data in a structured, machine-readable format.</li>
-              <li><strong>Object</strong> — object to processing based on legitimate interest.</li>
-              <li><strong>Withdraw consent</strong> — where processing is based on consent, you may withdraw it at any time.</li>
+              <li><strong>Access:</strong> request a copy of your personal data.</li>
+              <li><strong>Correction:</strong> ask us to correct inaccurate data.</li>
+              <li><strong>Erasure:</strong> request deletion of your personal data (&ldquo;right to be forgotten&rdquo;).</li>
+              <li><strong>Portability:</strong> receive your data in a structured, machine-readable format.</li>
+              <li><strong>Object:</strong> object to processing based on legitimate interest.</li>
+              <li><strong>Withdraw consent:</strong> where processing is based on consent, you may withdraw it at any time.</li>
             </ul>
             <p className="mt-3">
               To exercise any of these rights, email{' '}
@@ -161,7 +161,7 @@ export default function PrivacyPage() {
               . We will respond within 30 days.
             </p>
             <p className="mt-2">
-              You also have the right to lodge a complaint with your supervisory authority — the{' '}
+              You also have the right to lodge a complaint with your supervisory authority, for example the{' '}
               <strong>Nigeria Data Protection Commission (NDPC)</strong> for Nigerian users, or your local
               EU data protection authority for EU users.
             </p>
@@ -172,7 +172,7 @@ export default function PrivacyPage() {
             <p>
               All data is encrypted in transit (TLS) and at rest. We use Row Level Security (RLS) in our
               database so that each business can only access its own data. Passwords are hashed using
-              bcrypt — we cannot recover your password.
+              bcrypt. We cannot recover your password.
             </p>
           </section>
 

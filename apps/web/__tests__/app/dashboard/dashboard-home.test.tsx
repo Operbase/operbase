@@ -204,14 +204,14 @@ describe('DashboardHomeClient', () => {
 
   it('shows monthly spend table when spend data exists', () => {
     renderHome({ monthlySpend: SPEND })
-    expect(screen.getByText('This month — spend by item (purchases)')).toBeTruthy()
+    expect(screen.getByText('This month: what you spent on each item')).toBeTruthy()
     expect(screen.getByText('Flour')).toBeTruthy()
     expect(screen.getByText('Sugar')).toBeTruthy()
   })
 
   it('does NOT show monthly spend table when empty', () => {
     renderHome({ monthlySpend: [] })
-    expect(screen.queryByText('This month — spend by item (purchases)')).toBeNull()
+    expect(screen.queryByText('This month: what you spent on each item')).toBeNull()
   })
 
   it('renders nav links to Stock, Baking, Sales', () => {

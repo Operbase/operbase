@@ -50,8 +50,8 @@ export function LandingProblemSection() {
         <SectionHeading
           id="solutions-heading"
           eyebrow="Sound familiar?"
-          title="Running the business should not mean juggling ten tools"
-          description="Operbase is for owners who want clarity without enterprise software."
+          title="You should not need five apps to answer one question"
+          description="Operbase is for owners who want the real numbers without enterprise bloat."
         />
         <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 lg:gap-8">
           {problemCards.map((item, i) => (
@@ -86,7 +86,7 @@ export function LandingProductSection() {
           id="product-heading"
           eyebrow="One workspace"
           title="Stock, production, and sales connected"
-          description="Each part feeds the next so your numbers stay honest."
+          description="Each step feeds the next so profit is not a guess."
         />
         <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 lg:gap-8">
           {productPillars.map((item, i) => (
@@ -128,7 +128,7 @@ export function LandingStepsSection() {
       aria-labelledby="steps-heading"
     >
       <div className="mx-auto max-w-7xl">
-        <SectionHeading id="steps-heading" eyebrow="Onboarding" title="Up and running in three steps" />
+        <SectionHeading id="steps-heading" eyebrow="Quick setup" title="Three steps and you are tracking profit" />
         <ol className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 lg:gap-8">
           {homepageSteps.map((item, i) => (
             <AnimateIn
@@ -159,9 +159,9 @@ export function LandingTestimonialsSection() {
       <div className="mx-auto max-w-7xl">
         <SectionHeading
           id="testimonials-heading"
-          eyebrow="Social proof"
-          title="What operators say"
-          description="Early teams using Operbase-style workflows."
+          eyebrow="Real talk"
+          title="What owners tell us"
+          description="Sample quotes for now. We are collecting real stories as people use the app."
         />
         <ul className="grid gap-6 md:grid-cols-3 md:gap-8">
           {testimonials.map((t, i) => (

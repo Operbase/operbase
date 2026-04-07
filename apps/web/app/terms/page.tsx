@@ -3,7 +3,7 @@ import Navbar from '@/components/shared/navbar'
 import Footer from '@/components/shared/footer'
 
 export const metadata: Metadata = {
-  title: 'Terms of Service — Operbase',
+  title: 'Terms of Service | Operbase',
   description: 'The terms that govern your use of Operbase.',
 }
 

@@ -30,18 +30,18 @@ const BRAND_COLORS = [
 ]
 
 const CURRENCIES = [
-  { code: 'USD', label: 'USD — US Dollar' },
-  { code: 'EUR', label: 'EUR — Euro' },
-  { code: 'GBP', label: 'GBP — British Pound' },
-  { code: 'NGN', label: 'NGN — Nigerian Naira' },
-  { code: 'GHS', label: 'GHS — Ghanaian Cedi' },
-  { code: 'KES', label: 'KES — Kenyan Shilling' },
-  { code: 'ZAR', label: 'ZAR — South African Rand' },
-  { code: 'CAD', label: 'CAD — Canadian Dollar' },
-  { code: 'AUD', label: 'AUD — Australian Dollar' },
-  { code: 'INR', label: 'INR — Indian Rupee' },
-  { code: 'BRL', label: 'BRL — Brazilian Real' },
-  { code: 'MXN', label: 'MXN — Mexican Peso' },
+  { code: 'USD', label: 'US Dollar (USD)' },
+  { code: 'EUR', label: 'Euro (EUR)' },
+  { code: 'GBP', label: 'British pound (GBP)' },
+  { code: 'NGN', label: 'Nigerian naira (NGN)' },
+  { code: 'GHS', label: 'Ghanaian cedi (GHS)' },
+  { code: 'KES', label: 'Kenyan shilling (KES)' },
+  { code: 'ZAR', label: 'South African rand (ZAR)' },
+  { code: 'CAD', label: 'Canadian dollar (CAD)' },
+  { code: 'AUD', label: 'Australian dollar (AUD)' },
+  { code: 'INR', label: 'Indian rupee (INR)' },
+  { code: 'BRL', label: 'Brazilian real (BRL)' },
+  { code: 'MXN', label: 'Mexican peso (MXN)' },
 ]
 
 type Step = 'business' | 'branding' | 'type'
@@ -78,8 +78,8 @@ export default function OnboardingPage() {
       if (draft) {
         setStep(draft.step)
         setForm((prev) => ({ ...prev, ...draft.form }))
-        toast.message('Picked up where you left off', {
-          description: 'Progress is saved on this device.',
+        toast.message('Welcome back', {
+          description: 'We saved your answers on this device.',
         })
       }
       setHydrated(true)
@@ -112,12 +112,12 @@ export default function OnboardingPage() {
       businessType: 'bakery',
       currency: 'USD',
     })
-    toast.success('Started fresh')
+    toast.success('Cleared. Starting over.')
   }
 
   async function handleFinish() {
     if (!form.businessName.trim()) {
-      toast.error('Business name is required')
+      toast.error('Add your business name to finish.')
       return
     }
 
@@ -162,7 +162,7 @@ export default function OnboardingPage() {
 
       persistDraftRef.current = false
       clearOnboardingDraft(user.id)
-      toast.success('Business created! Welcome to Operbase.')
+      toast.success('You are all set. Opening your dashboard.')
       router.push('/dashboard')
       router.refresh()
     } catch (error) {
@@ -203,8 +203,8 @@ export default function OnboardingPage() {
                 <Building2 className="text-amber-600" size={20} />
               </div>
               <div>
-                <h2 className="text-xl font-bold text-gray-900">Create your business</h2>
-                <p className="text-sm text-gray-500">What&apos;s your business called?</p>
+                <h2 className="text-xl font-bold text-gray-900">Name your business</h2>
+                <p className="text-sm text-gray-500">This is how it will show in Operbase.</p>
               </div>
             </div>
             <div>
@@ -224,7 +224,7 @@ export default function OnboardingPage() {
             <Button
               onClick={() => {
                 if (!form.businessName.trim()) {
-                  toast.error('Please enter your business name')
+                  toast.error('Add your business name to continue.')
                   return
                 }
                 setStep('branding')
@@ -244,8 +244,8 @@ export default function OnboardingPage() {
                 <Palette className="text-amber-600" size={20} />
               </div>
               <div>
-                <h2 className="text-xl font-bold text-gray-900">Brand your business</h2>
-                <p className="text-sm text-gray-500">Choose your colors and logo</p>
+                <h2 className="text-xl font-bold text-gray-900">Look and feel</h2>
+                <p className="text-sm text-gray-500">Pick a color and add a logo link if you have one.</p>
               </div>
             </div>
 
@@ -306,7 +306,7 @@ export default function OnboardingPage() {
                   <option key={c.code} value={c.code}>{c.label}</option>
                 ))}
               </select>
-              <p className="text-xs text-gray-400 mt-1">Used for all prices and reports across your business</p>
+              <p className="text-xs text-gray-400 mt-1">Prices and reports use this currency.</p>
             </div>
 
             <div className="flex gap-3">
@@ -336,8 +336,8 @@ export default function OnboardingPage() {
                 <Tag className="text-amber-600" size={20} />
               </div>
               <div>
-                <h2 className="text-xl font-bold text-gray-900">What type of business?</h2>
-                <p className="text-sm text-gray-500">This helps us tailor your experience</p>
+                <h2 className="text-xl font-bold text-gray-900">What kind of business is it?</h2>
+                <p className="text-sm text-gray-500">Bakery is ready today. Other types are on the way.</p>
               </div>
             </div>
 
@@ -382,7 +382,7 @@ export default function OnboardingPage() {
                 {isLoading ? (
                   <>
                     <Spinner className="w-4 h-4" />
-                    Creating...
+                    Saving...
                   </>
                 ) : (
                   <>

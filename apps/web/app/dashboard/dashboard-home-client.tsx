@@ -155,9 +155,9 @@ export function DashboardHomeClient({
 
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Hi, {userName}!</h1>
-        <p className="text-gray-600 mt-1">
-          Here&apos;s <strong>{businessName ?? 'your business'}</strong> today.
-        </p>
+          <p className="text-gray-600 mt-1">
+            Quick look at <strong>{businessName ?? 'your business'}</strong> for today.
+          </p>
       </div>
 
       {/* Profit block — outcome first; time range applies to sales-derived figures */}
@@ -190,9 +190,8 @@ export function DashboardHomeClient({
             <CardContent className="pt-8 pb-8 px-6 text-center space-y-3">
               <p className="text-lg font-semibold text-gray-900">Your profit will show here</p>
               <p className="text-sm text-gray-600 max-w-md mx-auto leading-relaxed">
-                Once you record sales, you&apos;ll see money in, costs, and what&apos;s left — the same
-                numbers as on our homepage preview. Add stock, log a batch, then tap Sales to log your
-                first sale.
+                After your first sale you will see money in, costs, and what is left, like the preview on
+                our homepage. Add stock, log a batch, then head to Sales when you are ready.
               </p>
               <div className="flex flex-wrap justify-center gap-2 pt-2">
                 <Button asChild size="sm" className="bg-amber-600 hover:bg-amber-700">
@@ -210,7 +209,7 @@ export function DashboardHomeClient({
               <CardHeader className="pb-2">
                 <CardTitle className="text-base font-medium text-amber-900">After costs</CardTitle>
                 <p className="text-xs text-amber-800/80 font-normal">
-                  What&apos;s left from sales in this period (from your sale records)
+                  Profit from sales in the period you picked (from what you logged in Sales).
                 </p>
               </CardHeader>
               <CardContent>
@@ -266,7 +265,7 @@ export function DashboardHomeClient({
                 >
                   <span className="font-medium text-gray-900">{a.name}</span>
                   <span className="text-gray-600 text-right">
-                    {a.quantity_on_hand.toFixed(2)} {a.usage_unit_name} — {a.reason}
+                    {a.quantity_on_hand.toFixed(2)} {a.usage_unit_name} ({a.reason})
                   </span>
                 </li>
               ))}
@@ -346,7 +345,7 @@ export function DashboardHomeClient({
       {monthlySpend.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>This month — spend by item (purchases)</CardTitle>
+            <CardTitle>This month: what you spent on each item</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -384,8 +383,8 @@ export function DashboardHomeClient({
         <CardContent>
           {neverHadSale ? (
             <p className="text-sm text-gray-600 py-10 text-center max-w-md mx-auto leading-relaxed">
-              Your revenue trend will appear here after your first week of sales. Log a sale to get
-              started — no empty chart axes, just your real numbers when they exist.
+              Once you have a week of sales, your trend shows up here. Until then we skip the empty chart
+              and show this note instead.
             </p>
           ) : !periodHasMoney ? (
             <p className="text-sm text-gray-600 py-10 text-center max-w-md mx-auto leading-relaxed">

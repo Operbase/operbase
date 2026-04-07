@@ -8,9 +8,9 @@ import { AnimateIn } from '@/components/landing/animate-in'
 import { productModules, productFeatures } from '@/components/landing/content'
 
 export const metadata: Metadata = {
-  title: 'Product — How Operbase works',
+  title: 'Product | How Operbase works',
   description:
-    'Stock, production, and sales modules built for small business operators. Simple enough to use daily, connected enough to show real profit.',
+    'Stock, production, and sales in one flow. Made for people who run the shop, not for IT departments.',
 }
 
 const navLinks = [
@@ -40,12 +40,11 @@ export default function ProductPage() {
                 Product
               </p>
               <h1 className="text-balance text-4xl font-bold tracking-tight text-stone-900 sm:text-5xl">
-                Every module you need.{' '}
-                <span className="text-amber-600">Nothing you don&apos;t.</span>
+                Stock, batches, sales, and a dashboard that{' '}
+                <span className="text-amber-600">ties them together.</span>
               </h1>
               <p className="mt-5 text-pretty text-lg text-stone-600 sm:text-xl">
-                Operbase is built around four connected modules. Each one is useful alone.
-                Together, they give you a complete picture of your business.
+                Four parts that talk to each other. Use one or use all of them. Profit is always the point.
               </p>
               <div className="mt-8">
                 <Button

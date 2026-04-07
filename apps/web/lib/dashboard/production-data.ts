@@ -63,7 +63,7 @@ export async function loadProductionInitial(
         id: row.id as string,
         name: row.name as string,
         type: row.type as string,
-        usage_unit_name: uu?.name ?? '—',
+        usage_unit_name: uu?.name ?? '',
       }
     }
   )

@@ -31,7 +31,7 @@ const steps = [
     label: 'Stock',
     title: 'Add ingredients you bought',
     description:
-      'Start with one ingredient — flour, sugar, butter. Everything else follows from here.',
+      'Pick one thing you buy all the time (flour, sugar, butter). You can add the rest after.',
     href: '/dashboard/stock',
     cta: 'Add your first ingredient',
     primary: true,
@@ -91,7 +91,7 @@ export function GettingStartedHelper() {
           <Lightbulb className="h-5 w-5 shrink-0 text-amber-600" aria-hidden />
           <div>
             <h2 className="text-sm font-bold text-gray-900">Getting started</h2>
-            <p className="text-xs text-gray-500">3 steps to see your first profit number.</p>
+            <p className="text-xs text-gray-500">Three short steps, then you see real profit on the dashboard.</p>
           </div>
         </div>
         <button
