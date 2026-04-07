@@ -88,6 +88,7 @@ cd apps/web && npm install
 #    packages/supabase/migrations/20260403000007_rls_optimization.sql
 #    packages/supabase/migrations/20260403000008_fix_metrics_and_batch_items.sql
 #    packages/supabase/migrations/20260403000009_sales_product_name_dashboard_period.sql
+#    packages/supabase/migrations/20260403000010_weighted_average_cost.sql
 #    packages/supabase/seed/units.sql
 
 # 3. Start dev server
@@ -118,7 +119,9 @@ units                   ← shared lookup, seeded (gram, kg, litre, piece…)
 items                   ← ingredients + packaging
   id, business_id, name, type, unit_id (legacy = usage), purchase_unit_id, usage_unit_id,
   conversion_ratio (usage per 1 purchase), low_stock_threshold,
-  cost_per_unit (cost per purchase unit; cost/usage = cost_per_unit / conversion_ratio)
+  cost_per_unit (latest price paid per purchase unit — updated on restock),
+  avg_cost_per_usage_unit (rolling WAC in usage units — maintained by trg_stock_entry_wac trigger,
+    used by create_production_batch for COGS; never edit directly)
 
 stock_entries           ← append-only ledger (quantity always in usage units)
   id, business_id, item_id, quantity, cost_per_unit (per usage at entry), source
