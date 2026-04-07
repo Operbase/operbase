@@ -45,12 +45,16 @@ export async function middleware(request: NextRequest) {
 
   // Redirect unauthenticated users away from protected routes
   if (!user && pathname.startsWith('/dashboard')) {
-    return NextResponse.redirect(new URL('/login', request.url))
+    const redirect = NextResponse.redirect(new URL('/login', request.url))
+    redirect.cookies.delete(ONBOARDED_COOKIE)
+    return redirect
   }
 
   // Redirect unauthenticated users away from onboarding
   if (!user && pathname === '/onboarding') {
-    return NextResponse.redirect(new URL('/login', request.url))
+    const redirect = NextResponse.redirect(new URL('/login', request.url))
+    redirect.cookies.delete(ONBOARDED_COOKIE)
+    return redirect
   }
 
   // Redirect authenticated users away from auth pages

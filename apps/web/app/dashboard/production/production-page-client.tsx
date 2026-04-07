@@ -123,6 +123,7 @@ export function ProductionPageClient({
         const notes = b.notes as string | null
         return {
           id: b.id as string,
+          product_id: (b.product_id as string | null) ?? null,
           product_name: products?.name ?? notes ?? 'Unnamed batch',
           units_produced: Number(b.units_produced),
           units_remaining: Number(b.units_remaining),
@@ -194,11 +195,17 @@ export function ProductionPageClient({
     e.preventDefault()
     if (!businessId || isSubmitting) return
 
-    const units = parseFloat(form.unitsProduced)
-    if (!form.productName.trim() || !units || units <= 0) {
+    const nameTrim = form.productName.trim()
+    if (!nameTrim || !parseFloat(form.unitsProduced) || parseFloat(form.unitsProduced) <= 0) {
       toast.error('Please fill in all required fields')
       return
     }
+    if (nameTrim.length > 200) {
+      toast.error('Product name is too long. Keep it under 200 characters.')
+      return
+    }
+
+    const units = parseFloat(form.unitsProduced)
 
     const resolvedLines = lines
       .filter((l) => l.itemId && parseFloat(l.quantity) > 0)
@@ -208,13 +215,24 @@ export function ProductionPageClient({
     setIsSubmitting(true)
 
     try {
+      const { data: productId, error: productErr } = await client.rpc('ensure_product', {
+        p_business_id: businessId,
+        p_name: nameTrim,
+      })
+      if (productErr) throw productErr
+      if (!productId || typeof productId !== 'string') {
+        toast.error('Could not save the product for this batch. Try again.')
+        return
+      }
+
       if (editingBatch) {
         const extra = form.notes.trim()
-        const notes = `${form.productName.trim()}${extra ? ' · ' + extra : ''}`
+        const notes = `${nameTrim}${extra ? ' · ' + extra : ''}`
         const { error } = await client
           .from('batches')
           .update({
             notes,
+            product_id: productId,
             units_produced: units,
             units_remaining: units,
             produced_at: form.producedAt,
@@ -228,9 +246,10 @@ export function ProductionPageClient({
           p_business_id: businessId,
           p_units_produced: units,
           p_produced_at: new Date(form.producedAt).toISOString(),
-          p_display_name: form.productName.trim(),
+          p_display_name: nameTrim,
           p_extra_notes: form.notes.trim() || null,
           p_lines: resolvedLines,
+          p_product_id: productId,
         })
 
         if (error) throw error
@@ -336,6 +355,9 @@ export function ProductionPageClient({
                     className="mt-3 min-h-11 text-base"
                     disabled={!!editingBatch?.has_inventory_lines}
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Use the same wording in Sales when you ring up that item so cost lines up.
+                  </p>
                 </div>
                 <div>
                   <Label className="text-base">How many did you make?</Label>

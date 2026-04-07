@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type ProductionBatchRow = {
   id: string
+  product_id: string | null
   product_name: string
   units_produced: number
   units_remaining: number
@@ -46,6 +47,7 @@ export async function loadProductionInitial(
     const notes = b.notes as string | null
     return {
       id: b.id as string,
+      product_id: (b.product_id as string | null) ?? null,
       product_name: products?.name ?? notes ?? 'Unnamed batch',
       units_produced: Number(b.units_produced),
       units_remaining: Number(b.units_remaining),

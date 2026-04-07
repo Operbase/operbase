@@ -63,6 +63,7 @@ function toInitialSales(): SalesRow[] {
   return MOCK_SALES.map((s) => ({
     id: s.id,
     customer_name: (s.customers as { name?: string } | null)?.name ?? 'Walk-in',
+    product_id: 'prod-sourdough',
     product_name: 'Sourdough',
     units_sold: s.units_sold,
     unit_price: s.unit_price,
@@ -78,6 +79,12 @@ function renderSales() {
 }
 
 function setupMocks() {
+  mockSupabaseClient.rpc.mockImplementation((name: string) => {
+    if (name === 'ensure_product') {
+      return Promise.resolve({ data: 'prod-test', error: null })
+    }
+    return Promise.resolve({ data: null, error: null })
+  })
   mockSupabaseClient.from.mockImplementation((table: string) => {
     if (table === 'sales') {
       return {
@@ -186,6 +193,12 @@ describe('SalesPage', () => {
     const user = userEvent.setup()
     const insertMock = vi.fn().mockResolvedValue({ error: null })
 
+    mockSupabaseClient.rpc.mockImplementation((name: string) => {
+      if (name === 'ensure_product') {
+        return Promise.resolve({ data: 'prod-danish', error: null })
+      }
+      return Promise.resolve({ data: null, error: null })
+    })
     mockSupabaseClient.from.mockImplementation((table: string) => {
       if (table === 'sales') {
         return {
@@ -218,14 +231,70 @@ describe('SalesPage', () => {
         expect.objectContaining({
           business_id: 'biz-123',
           customer_id: null,
-          // batch_id removed — COGS is now automatic, no batch linking on sale form
-          cogs: null, // null because no batches exist in test
+          cogs: null, // no batches for prod-danish in this test
+          product_id: 'prod-danish',
           product_name: 'Danish',
           units_sold: 10,
           unit_price: 5,
         })
       )
       expect(toast.success).toHaveBeenCalledWith('Sale recorded!')
+    })
+  })
+
+  it('computes COGS from batches for the same product only', async () => {
+    const user = userEvent.setup()
+    const insertMock = vi.fn().mockResolvedValue({ error: null })
+    const batchesEqSpy = vi.fn()
+
+    mockSupabaseClient.rpc.mockImplementation((name: string) => {
+      if (name === 'ensure_product') {
+        return Promise.resolve({ data: 'prod-muffin', error: null })
+      }
+      return Promise.resolve({ data: null, error: null })
+    })
+    mockSupabaseClient.from.mockImplementation((table: string) => {
+      if (table === 'sales') {
+        return {
+          ...createQueryBuilder({ data: [] }),
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          order: vi.fn().mockResolvedValue({ data: [], error: null }),
+          insert: insertMock,
+        }
+      }
+      if (table === 'batches') {
+        const b = createQueryBuilder({
+          data: [{ cost_of_goods: 100, units_produced: 10 }],
+        })
+        b.eq = vi.fn((col: string, val: unknown) => {
+          batchesEqSpy(col, val)
+          return b
+        })
+        return b
+      }
+      return createQueryBuilder()
+    })
+
+    renderSales()
+
+    await user.click(screen.getByRole('button', { name: /log sale/i }))
+    const dlg = await screen.findByRole('dialog')
+    await user.type(within(dlg).getByLabelText(/what did you sell/i), 'Muffins')
+    await user.type(within(dlg).getByLabelText(/^how many/i), '5')
+    await user.type(within(dlg).getByLabelText(/^price each/i), '4')
+    await user.click(within(dlg).getByRole('button', { name: /^save sale$/i }))
+
+    await waitFor(() => {
+      expect(batchesEqSpy).toHaveBeenCalledWith('product_id', 'prod-muffin')
+      expect(insertMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          product_id: 'prod-muffin',
+          product_name: 'Muffins',
+          cogs: 50,
+          units_sold: 5,
+        })
+      )
     })
   })
 
@@ -236,6 +305,12 @@ describe('SalesPage', () => {
     const customerSingleMock = vi.fn().mockResolvedValue({ data: { id: 'cust-new' }, error: null })
     const saleInsertMock = vi.fn().mockResolvedValue({ error: null })
 
+    mockSupabaseClient.rpc.mockImplementation((name: string) => {
+      if (name === 'ensure_product') {
+        return Promise.resolve({ data: 'prod-cake', error: null })
+      }
+      return Promise.resolve({ data: null, error: null })
+    })
     mockSupabaseClient.from.mockImplementation((table: string) => {
       if (table === 'customers') {
         return {

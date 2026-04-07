@@ -30,6 +30,10 @@ import { COMMON_SALE_AMOUNTS, COMMON_SALE_PRICES } from '@/lib/bakery/simple-pre
 import { PriceChips, WholeNumberChips } from '@/components/bakery-quick-picks'
 import { friendlyError } from '@/lib/errors'
 import {
+  saleCogsFromProductAvg,
+  weightedAverageOutputUnitCost,
+} from '@/lib/bakery/per-product-cogs'
+import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import type { SalesRow } from '@/lib/dashboard/sales-data'
@@ -73,7 +77,7 @@ export function SalesPageClient({
     let query = client
       .from('sales')
       .select(
-        'id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, product_name, customers(name)'
+        'id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, product_id, product_name, customers(name)'
       )
       .eq('business_id', businessId)
 
@@ -102,6 +106,7 @@ export function SalesPageClient({
         return {
           id: s.id as string,
           customer_name: c?.name ?? 'Walk-in',
+          product_id: (s.product_id as string | null) ?? null,
           product_name: (s.product_name as string | null) ?? null,
           units_sold: Number(s.units_sold),
           unit_price: Number(s.unit_price),
@@ -130,32 +135,29 @@ export function SalesPageClient({
   }, [businessId, fetchSales, page, dateRange])
 
   /**
-   * Weighted average COGS across all batches for this business.
-   * avg = SUM(cost_of_goods) / SUM(units_produced) across all batches.
-   * Returns null when no batch data exists (no production logged yet).
+   * COGS for this sale: average cost per unit from batches of the same product only.
+   * Returns null when there is no production with that product yet (cost unknown).
    */
-  async function computeAutoCogs(unitsSold: number): Promise<number | null> {
+  async function computeAutoCogs(
+    productId: string,
+    unitsSold: number
+  ): Promise<number | null> {
     if (!businessId) return null
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('batches')
       .select('cost_of_goods, units_produced')
       .eq('business_id', businessId)
+      .eq('product_id', productId)
       .gt('units_produced', 0)
       .not('cost_of_goods', 'is', null)
 
-    if (!data || data.length === 0) return null
+    if (error) {
+      console.error('[sales] batches for COGS:', error.message)
+      return null
+    }
 
-    const totalCost = data.reduce(
-      (sum: number, b: { cost_of_goods: number }) => sum + b.cost_of_goods,
-      0
-    )
-    const totalUnits = data.reduce(
-      (sum: number, b: { units_produced: number }) => sum + b.units_produced,
-      0
-    )
-    if (totalUnits <= 0) return null
-
-    return (totalCost / totalUnits) * unitsSold
+    const avg = weightedAverageOutputUnitCost(data ?? [])
+    return saleCogsFromProductAvg(unitsSold, avg)
   }
 
   function openAdd() {
@@ -191,6 +193,10 @@ export function SalesPageClient({
       toast.error('What did you sell? Add a product name (e.g. croissants, sourdough loaf).')
       return
     }
+    if (productName.length > 200) {
+      toast.error('Product name is too long. Keep it under 200 characters.')
+      return
+    }
 
     const units = parseFloat(form.unitsSold)
     const price = parseFloat(form.unitPrice)
@@ -203,9 +209,17 @@ export function SalesPageClient({
     setIsSubmitting(true)
 
     try {
-      // Auto COGS: weighted average cost per unit across all batches × units sold.
-      // No user input needed — runs invisibly on every save.
-      const cogs = await computeAutoCogs(units)
+      const { data: productId, error: productErr } = await supabase.rpc('ensure_product', {
+        p_business_id: businessId,
+        p_name: productName,
+      })
+      if (productErr) throw productErr
+      if (!productId || typeof productId !== 'string') {
+        toast.error('Could not save the product for this sale. Try again.')
+        return
+      }
+
+      const cogs = await computeAutoCogs(productId, units)
 
       let customerId: string | null = null
 
@@ -235,7 +249,14 @@ export function SalesPageClient({
       if (editingSale) {
         const { error } = await supabase
           .from('sales')
-          .update({ product_name: productName, units_sold: units, unit_price: price, sold_at: form.soldAt, cogs })
+          .update({
+            product_id: productId,
+            product_name: productName,
+            units_sold: units,
+            unit_price: price,
+            sold_at: form.soldAt,
+            cogs,
+          })
           .eq('id', editingSale.id)
         if (error) throw error
         toast.success('Sale updated!')
@@ -243,6 +264,7 @@ export function SalesPageClient({
         const { error } = await supabase.from('sales').insert({
           business_id: businessId,
           customer_id: customerId,
+          product_id: productId,
           product_name: productName,
           units_sold: units,
           unit_price: price,
@@ -302,7 +324,8 @@ export function SalesPageClient({
           <h1 className="text-3xl font-bold text-gray-900">Sales</h1>
           <p className="text-gray-600 mt-1">
             Log what you sold, how many, at what price, and who bought (if you know). Operbase totals revenue
-            and profit for you. Cost of goods is calculated automatically from your batch history.
+            and profit for you. Cost of goods uses your logged bakes for the same product name (not mixed with
+            other products).
           </p>
         </div>
 
@@ -357,7 +380,7 @@ export function SalesPageClient({
                     autoFocus
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Keep it short. You will use this name when you scan sales by product later.
+                    Use the same name as in Baking when you can, so cost lines up with those batches.
                   </p>
                 </div>
                 <div>

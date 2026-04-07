@@ -27,6 +27,7 @@ import { ProductionPageClient } from '@/app/dashboard/production/production-page
 const MOCK_BATCHES = [
   {
     id: 'batch-1',
+    product_id: 'prod-sourdough',
     products: { name: 'Sourdough Bread' },
     batch_items: [{ id: 'bi-1' }],
     units_produced: 50,
@@ -37,6 +38,7 @@ const MOCK_BATCHES = [
   },
   {
     id: 'batch-2',
+    product_id: null,
     products: null,
     batch_items: [],
     units_produced: 100,
@@ -49,6 +51,7 @@ const MOCK_BATCHES = [
 
 const initialBatches: ProductionBatchRow[] = MOCK_BATCHES.map((b) => ({
   id: b.id,
+  product_id: b.product_id as string | null,
   product_name:
     (b.products as { name?: string } | null)?.name ?? (b.notes as string) ?? 'Unnamed batch',
   units_produced: b.units_produced,
@@ -89,6 +92,9 @@ function setupMocks() {
     return createQueryBuilder()
   })
   mockSupabaseClient.rpc.mockImplementation((name: string) => {
+    if (name === 'ensure_product') {
+      return Promise.resolve({ data: 'prod-default', error: null })
+    }
     if (name === 'create_production_batch') {
       return Promise.resolve({ data: 'new-batch-id', error: null })
     }
@@ -160,7 +166,10 @@ describe('ProductionPage', () => {
 
   it('creates a batch with valid input via RPC', async () => {
     const user = userEvent.setup()
-    const rpcMock = vi.fn().mockResolvedValue({ data: 'new-batch-id', error: null })
+    const rpcMock = vi
+      .fn()
+      .mockResolvedValueOnce({ data: 'prod-baguette', error: null })
+      .mockResolvedValueOnce({ data: 'new-batch-id', error: null })
     mockSupabaseClient.rpc.mockImplementation(rpcMock)
 
     mockSupabaseClient.from.mockImplementation((table: string) => {
@@ -193,12 +202,19 @@ describe('ProductionPage', () => {
     await user.click(within(dlg).getByRole('button', { name: /save batch/i }))
 
     await waitFor(() => {
+      expect(rpcMock).toHaveBeenCalledTimes(2)
+      expect(rpcMock.mock.calls[0][0]).toBe('ensure_product')
+      expect(rpcMock.mock.calls[0][1]).toMatchObject({
+        p_business_id: 'biz-123',
+        p_name: 'Baguettes',
+      })
       expect(rpcMock).toHaveBeenCalledWith(
         'create_production_batch',
         expect.objectContaining({
           p_business_id: 'biz-123',
           p_units_produced: 75,
           p_display_name: 'Baguettes',
+          p_product_id: 'prod-baguette',
           p_lines: [],
         })
       )

@@ -5,6 +5,7 @@ const PAGE_SIZE = 50
 export type SalesRow = {
   id: string
   customer_name: string
+  product_id: string | null
   product_name: string | null
   units_sold: number
   unit_price: number
@@ -21,7 +22,9 @@ export async function loadSalesInitial(
 ): Promise<{ sales: SalesRow[] }> {
   let salesQuery = supabase
     .from('sales')
-    .select('id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, product_name, customers(name)')
+    .select(
+      'id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, product_id, product_name, customers(name)'
+    )
     .eq('business_id', businessId)
 
   if (dateRange !== 'all') {
@@ -41,6 +44,7 @@ export async function loadSalesInitial(
     return {
       id: s.id as string,
       customer_name: c?.name ?? 'Walk-in',
+      product_id: (s.product_id as string | null) ?? null,
       product_name: (s.product_name as string | null) ?? null,
       units_sold: Number(s.units_sold),
       unit_price: Number(s.unit_price),
