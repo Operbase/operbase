@@ -59,11 +59,21 @@ BEGIN
     RETURN v_id;
   END IF;
 
-  INSERT INTO products (business_id, name)
-  VALUES (p_business_id, v_trim)
-  RETURNING id INTO v_id;
-
-  RETURN v_id;
+  BEGIN
+    INSERT INTO products (business_id, name)
+    VALUES (p_business_id, v_trim)
+    RETURNING id INTO v_id;
+    RETURN v_id;
+  EXCEPTION
+    WHEN unique_violation THEN
+      SELECT id INTO v_id
+      FROM products
+      WHERE business_id = p_business_id AND name = v_trim;
+      IF v_id IS NULL THEN
+        RAISE;
+      END IF;
+      RETURN v_id;
+  END;
 END;
 $$;
 

@@ -89,6 +89,7 @@ cd apps/web && npm install
 #    packages/supabase/migrations/20260403000008_fix_metrics_and_batch_items.sql
 #    packages/supabase/migrations/20260403000009_sales_product_name_dashboard_period.sql
 #    packages/supabase/migrations/20260403000010_weighted_average_cost.sql
+#    packages/supabase/migrations/20260403000011_per_product_costing.sql
 #    packages/supabase/seed/units.sql
 
 # 3. Start dev server
@@ -130,9 +131,13 @@ stock_entries           ← append-only ledger (quantity always in usage units)
 stock_levels            ← VIEW: SUM(quantity) per item
   item_id, business_id, quantity_on_hand
 
+products                ← finished goods (MVP: one row per name per business; created via ensure_product RPC)
+  id, business_id, name, unit_id?, sale_price, is_active
+
 batches                 ← production runs
-  id, business_id, product_id?, units_produced, units_remaining, cost_of_goods?, notes, produced_at
-  Create with inventory: RPC create_production_batch; delete with restore: delete_production_batch
+  id, business_id, product_id (required for new RPC-created batches), units_produced, units_remaining,
+  cost_of_goods?, notes, produced_at
+  Create with inventory: RPC create_production_batch (calls for p_product_id); delete with restore: delete_production_batch
 
 batch_items             ← ingredients consumed per batch
   id, batch_id, item_id, quantity, unit_id, cost
@@ -141,8 +146,9 @@ customers               ← per-business customer records
   id, business_id, name, phone, email
 
 sales                   ← revenue records
-  id, business_id, customer_id?, batch_id?, product_name (text, required for new rows),
+  id, business_id, customer_id?, batch_id?, product_id?, product_name (denormalized label),
   units_sold, unit_price, revenue (computed), cogs, gross_profit (computed), sold_at
+  COGS: average unit cost from batches with the same product_id only (see docs/costing-model.md)
 
 subscriptions           ← recurring orders
   id, business_id, customer_id, product_id, quantity, frequency, next_due, unit_price
@@ -214,7 +220,7 @@ Middleware (`apps/web/middleware.ts`) enforces:
 3. No session + `/onboarding` → redirect to `/login`
 4. Session + `/login` or `/signup` → redirect to `/dashboard`
 5. Session + `/dashboard/*` without a business row → redirect to `/onboarding`
-6. **Onboarding cookie (`ob_onboarded`):** After the first successful `user_businesses` check for a dashboard request, middleware sets a short-lived **httpOnly** cookie (1h TTL) so later navigations skip that DB round-trip. The cookie is cleared when there is no session. **Local dev:** `secure` is false so the cookie works on `http://localhost`.
+6. **Onboarding cookie (`ob_onboarded`):** After the first successful `user_businesses` check for a dashboard request, middleware sets a short-lived **httpOnly** cookie (1h TTL) so later navigations skip that DB round-trip. **`POST /api/auth/logout`** expires it in the same response as server `signOut` (client JS cannot clear httpOnly cookies). Middleware also clears it when there is no session (safety net). **Local dev:** `secure` is false so the cookie works on `http://localhost`.
 
 Keep middleware limited to auth and onboarding — no extra product logic here.
 
@@ -268,7 +274,7 @@ lib/
   supabase/server.ts      createClient() → SSR Supabase client (uses next/headers)
   supabase/public-env.ts  getSupabasePublicConfig() → { url, anonKey }
                           Falls back to localhost placeholder at build time
-  auth.ts                 signIn / signUp / signOut / signInWithGoogle (thin wrappers over supabase.auth)
+  auth.ts                 signIn / signUp / signOut / signInWithGoogle — signOut calls `POST /api/auth/logout` then `supabase.auth.signOut()`
   format-currency.ts      formatCurrency(amount, currency) → locale-aware string via Intl.NumberFormat
                           ALWAYS use this for price display — never raw .toFixed(2)
   services/events.ts      trackEvent(actionType, businessId, metadata?) — event tracking
@@ -425,7 +431,8 @@ import { mockSupabaseClient, resetSupabaseMocks } from '@/__tests__/helpers/supa
 | Function | Purpose |
 |----------|---------|
 | `create_business_with_owner(p_name, p_subdomain, p_logo_url, p_brand_color, p_business_type, p_currency DEFAULT 'USD')` | Atomically inserts `businesses`, `user_businesses`, and `business_settings` (with currency) in one transaction. 6th param is optional. Call from onboarding. |
-| `create_production_batch(p_business_id, p_units_produced, p_produced_at, p_display_name, p_extra_notes, p_lines)` | Validates stock, deducts `stock_entries`, writes `batch_items`, computes `cost_of_goods`. |
+| `ensure_product(p_business_id, p_name)` | Returns `products.id`, inserting a row for trimmed `p_name` if needed (max 200 chars). Used before batch create and when saving sales. |
+| `create_production_batch(p_business_id, p_units_produced, p_produced_at, p_display_name, p_extra_notes, p_lines, p_product_id)` | Validates stock, deducts `stock_entries`, writes `batch_items`, sets `batches.product_id` and `cost_of_goods`. |
 | `delete_production_batch(p_batch_id)` | Reverses `stock_entries` for each ingredient line, then deletes the batch. |
 | `monthly_spend_by_item(p_business_id, p_year, p_month)` | Returns per-item purchase spend for a given month (used on dashboard chart). |
 | `dashboard_metrics(p_business_id)` | Single-call revenue, COGS, gross profit, sales/batch/item counts (dashboard home). |

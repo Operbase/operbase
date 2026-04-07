@@ -1,9 +1,11 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import {
+  ONBOARDED_COOKIE_NAME,
+  ONBOARDED_COOKIE_MAX_AGE_SEC,
+  onboardedCookieBaseOptions,
+} from '@/lib/auth/cookies'
 import { getSupabasePublicConfig } from '@/lib/supabase/public-env'
-
-const ONBOARDED_COOKIE = 'ob_onboarded'
-const ONBOARDED_MAX_AGE = 60 * 60 // 1 hour — refresh daily
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -34,8 +36,9 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
+  // Safety net: clear stale onboarded hint when there is no session (logout route clears it too).
   if (!user) {
-    supabaseResponse.cookies.delete(ONBOARDED_COOKIE)
+    supabaseResponse.cookies.delete(ONBOARDED_COOKIE_NAME)
   }
 
   // Signed-in users skip the marketing home page
@@ -46,14 +49,14 @@ export async function middleware(request: NextRequest) {
   // Redirect unauthenticated users away from protected routes
   if (!user && pathname.startsWith('/dashboard')) {
     const redirect = NextResponse.redirect(new URL('/login', request.url))
-    redirect.cookies.delete(ONBOARDED_COOKIE)
+    redirect.cookies.delete(ONBOARDED_COOKIE_NAME)
     return redirect
   }
 
   // Redirect unauthenticated users away from onboarding
   if (!user && pathname === '/onboarding') {
     const redirect = NextResponse.redirect(new URL('/login', request.url))
-    redirect.cookies.delete(ONBOARDED_COOKIE)
+    redirect.cookies.delete(ONBOARDED_COOKIE_NAME)
     return redirect
   }
 
@@ -64,7 +67,7 @@ export async function middleware(request: NextRequest) {
 
   // For authenticated users going to dashboard, check onboarding
   // Use a short-lived cookie to skip the DB check on most requests
-  const onboardedCookie = request.cookies.get(ONBOARDED_COOKIE)
+  const onboardedCookie = request.cookies.get(ONBOARDED_COOKIE_NAME)
   if (user && pathname.startsWith('/dashboard')) {
     if (!onboardedCookie) {
       // First request after login — verify onboarding status from DB
@@ -81,12 +84,9 @@ export async function middleware(request: NextRequest) {
       }
 
       // Set a cookie so subsequent requests skip the DB check
-      supabaseResponse.cookies.set(ONBOARDED_COOKIE, '1', {
-        maxAge: ONBOARDED_MAX_AGE,
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
+      supabaseResponse.cookies.set(ONBOARDED_COOKIE_NAME, '1', {
+        maxAge: ONBOARDED_COOKIE_MAX_AGE_SEC,
+        ...onboardedCookieBaseOptions(),
       })
     }
     // Cookie present — trust it, no DB query needed

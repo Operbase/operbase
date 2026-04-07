@@ -1,5 +1,20 @@
 import { createClient } from './supabase/client'
 
+async function clearServerSessionAndAppCookies() {
+  try {
+    const res = await fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    })
+    if (!res.ok) {
+      console.error('[auth] POST /api/auth/logout failed:', res.status)
+    }
+  } catch (e) {
+    console.error('[auth] POST /api/auth/logout error:', e)
+  }
+}
+
 export async function signIn(email: string, password: string) {
   const supabase = createClient()
   const { error } = await supabase.auth.signInWithPassword({ email, password })
@@ -21,6 +36,7 @@ export async function signUp(
 }
 
 export async function signOut() {
+  await clearServerSessionAndAppCookies()
   const supabase = createClient()
   const { error } = await supabase.auth.signOut()
   if (error) throw error

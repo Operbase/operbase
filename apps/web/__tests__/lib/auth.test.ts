@@ -78,7 +78,37 @@ describe('signUp()', () => {
 })
 
 describe('signOut()', () => {
-  it('calls supabase signOut', async () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+      })
+    )
+  })
+
+  it('calls server logout then supabase signOut', async () => {
+    mockSupabaseClient.auth.signOut.mockResolvedValueOnce({ error: null })
+
+    await signOut()
+
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    })
+    expect(mockSupabaseClient.auth.signOut).toHaveBeenCalledOnce()
+  })
+
+  it('still runs client signOut when server logout fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+      })
+    )
     mockSupabaseClient.auth.signOut.mockResolvedValueOnce({ error: null })
 
     await signOut()
