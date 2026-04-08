@@ -45,7 +45,7 @@ export function SalesPageClient({
 }: {
   initialSales: SalesRow[]
 }) {
-  const { businessId, currency } = useBusinessContext()
+  const { businessId, currency, brandColor } = useBusinessContext()
   const [sales, setSales] = useState<Sale[]>(initialSales)
   const [isLoading, setIsLoading] = useState(false)
   const skipSsrListFetch = useRef(true)
@@ -380,7 +380,7 @@ export function SalesPageClient({
                     autoFocus
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Use the same name as in Baking when you can, so cost lines up with those batches.
+                    Use the same name as in Production when you can, so cost lines up with those runs.
                   </p>
                 </div>
                 <div>
@@ -524,7 +524,7 @@ export function SalesPageClient({
                   <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                   <YAxis />
                   <Tooltip formatter={(v: number) => formatCurrency(v, currency)} />
-                  <Bar dataKey="revenue" fill="#d97706" />
+                  <Bar dataKey="revenue" fill={brandColor} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>

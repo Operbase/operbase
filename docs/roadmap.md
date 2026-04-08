@@ -4,13 +4,17 @@
 
 ## For AI assistants (scope guard)
 
-Refer to **`roadmap.md`** (this file, under `docs/`) for:
+**Prompt (copy for tools):**
+
+Refer to `docs/roadmap.md` for:
 
 - current phase  
 - allowed scope  
 - API structure  
 
-**Do not implement features outside the current phase.**
+Do not implement features outside the current phase.
+
+From inside `docs/`, the same file is [`roadmap.md`](./roadmap.md).
 
 ---
 
@@ -578,6 +582,8 @@ This section must be completed **before any paid plan is offered or user data is
 ---
 
 ## 13. Event Tracking (Analytics)
+
+In a shorter outline without **§7 (Infrastructure)** and **§8 (Legal)**, this section is numbered **§11**.
 
 Track:
 

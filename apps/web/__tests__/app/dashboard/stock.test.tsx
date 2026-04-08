@@ -95,6 +95,12 @@ const MOCK_UNITS = [
 ]
 
 function setupMocks() {
+  mockSupabaseClient.rpc.mockImplementation((name: string) => {
+    if (name === 'add_purchase_lot') {
+      return Promise.resolve({ data: '00000000-0000-4000-8000-000000000001', error: null })
+    }
+    return Promise.resolve({ data: null, error: null })
+  })
   mockSupabaseClient.from.mockImplementation((table: string) => {
     if (table === 'items') {
       return {
@@ -143,7 +149,7 @@ describe('StockPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /^stock$/i })).toBeInTheDocument()
       expect(
-        screen.getByText(/Track what you buy and use/i)
+        screen.getByText(/Add stock when you shop/i)
       ).toBeInTheDocument()
     })
   })
@@ -237,7 +243,7 @@ describe('StockPage', () => {
     const dialog = await screen.findByRole('dialog')
 
     await user.type(within(dialog).getByPlaceholderText(/what do you call it/i), 'Butter')
-    await user.type(within(dialog).getByLabelText(/^price per unit$/i), '3')
+    await user.type(within(dialog).getByLabelText(/what you pay for one purchase/i), '3')
     await user.click(within(dialog).getByRole('button', { name: /^save$/i }))
 
     await waitFor(() => {

@@ -298,8 +298,8 @@ export function DashboardHomeClient({
                 <ChefHat className="text-amber-800" size={28} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-lg text-gray-900">Baking</p>
-                <p className="text-sm text-gray-600">Log what you baked</p>
+                <p className="font-semibold text-lg text-gray-900">Production</p>
+                <p className="text-sm text-gray-600">Record what you made</p>
               </div>
               <ChevronRight className="text-gray-400 shrink-0" />
             </CardContent>

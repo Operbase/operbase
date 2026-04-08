@@ -42,6 +42,16 @@ type StockItemOption = ProductionStockItemRow
 interface LineRow {
   itemId: string
   quantity: string
+  /** Empty = FIFO from oldest purchase lot */
+  purchaseLotId: string
+}
+
+type PurchaseLotOption = {
+  id: string
+  quantity_remaining: number
+  purchased_at: string
+  cost_per_usage_unit: number
+  label: string
 }
 
 export function ProductionPageClient({
@@ -62,10 +72,16 @@ export function ProductionPageClient({
   const [form, setForm] = useState({
     productName: '',
     unitsProduced: '',
+    unitsGivenAway: '',
     notes: '',
     producedAt: new Date().toISOString().split('T')[0],
   })
-  const [lines, setLines] = useState<LineRow[]>([{ itemId: '', quantity: '' }])
+  const [lines, setLines] = useState<LineRow[]>([
+    { itemId: '', quantity: '', purchaseLotId: '' },
+  ])
+  const [lotOptionsByItem, setLotOptionsByItem] = useState<
+    Record<string, PurchaseLotOption[]>
+  >({})
 
   const fetchStockItems = useCallback(async () => {
     if (!businessId) return
@@ -99,6 +115,33 @@ export function ProductionPageClient({
     )
   }, [businessId])
 
+  const fetchLotsForItem = useCallback(
+    async (itemId: string) => {
+      if (!businessId || !itemId) return
+      const client = createClient()
+      const { data, error } = await client
+        .from('purchase_lots')
+        .select('id, quantity_remaining, purchased_at, cost_per_usage_unit, label')
+        .eq('business_id', businessId)
+        .eq('item_id', itemId)
+        .gt('quantity_remaining', 0)
+        .order('purchased_at', { ascending: true })
+
+      if (error) {
+        if (error.code === '42P01' || error.message?.includes('purchase_lots')) {
+          return
+        }
+        toast.error(friendlyError(error, 'Could not load stock batches'))
+        return
+      }
+      setLotOptionsByItem((prev) => ({
+        ...prev,
+        [itemId]: (data ?? []) as PurchaseLotOption[],
+      }))
+    },
+    [businessId]
+  )
+
   const fetchBatches = useCallback(async () => {
     if (!businessId) return
     setIsLoading(true)
@@ -127,6 +170,8 @@ export function ProductionPageClient({
           product_name: products?.name ?? notes ?? 'Unnamed batch',
           units_produced: Number(b.units_produced),
           units_remaining: Number(b.units_remaining),
+          units_given_away:
+            b.units_given_away != null ? Number(b.units_given_away) : 0,
           cost_of_goods: b.cost_of_goods != null ? Number(b.cost_of_goods) : null,
           notes,
           produced_at: b.produced_at as string,
@@ -157,13 +202,15 @@ export function ProductionPageClient({
 
   function openAdd() {
     setEditingBatch(null)
+    setLotOptionsByItem({})
     setForm({
       productName: '',
       unitsProduced: '',
+      unitsGivenAway: '',
       notes: '',
       producedAt: new Date().toISOString().split('T')[0],
     })
-    setLines([{ itemId: '', quantity: '' }])
+    setLines([{ itemId: '', quantity: '', purchaseLotId: '' }])
     setDialogOpen(true)
   }
 
@@ -176,15 +223,16 @@ export function ProductionPageClient({
     setForm({
       productName: batch.product_name,
       unitsProduced: batch.units_produced.toString(),
+      unitsGivenAway: '',
       notes: '',
       producedAt: batch.produced_at.split('T')[0],
     })
-    setLines([{ itemId: '', quantity: '' }])
+    setLines([{ itemId: '', quantity: '', purchaseLotId: '' }])
     setDialogOpen(true)
   }
 
   function addLine() {
-    setLines((prev) => [...prev, { itemId: '', quantity: '' }])
+    setLines((prev) => [...prev, { itemId: '', quantity: '', purchaseLotId: '' }])
   }
 
   function removeLine(index: number) {
@@ -206,10 +254,24 @@ export function ProductionPageClient({
     }
 
     const units = parseFloat(form.unitsProduced)
+    const givenAway = !editingBatch ? Math.max(0, parseFloat(form.unitsGivenAway) || 0) : 0
+    if (!editingBatch && givenAway > units) {
+      toast.error('Samples or giveaways can’t be more than how many you made.')
+      return
+    }
 
     const resolvedLines = lines
       .filter((l) => l.itemId && parseFloat(l.quantity) > 0)
-      .map((l) => ({ item_id: l.itemId, quantity: parseFloat(l.quantity) }))
+      .map((l) => {
+        const row: { item_id: string; quantity: number; purchase_lot_id?: string } = {
+          item_id: l.itemId,
+          quantity: parseFloat(l.quantity),
+        }
+        if (l.purchaseLotId.trim()) {
+          row.purchase_lot_id = l.purchaseLotId.trim()
+        }
+        return row
+      })
 
     const client = createClient()
     setIsSubmitting(true)
@@ -250,12 +312,13 @@ export function ProductionPageClient({
           p_extra_notes: form.notes.trim() || null,
           p_lines: resolvedLines,
           p_product_id: productId,
+          p_units_not_for_sale: givenAway,
         })
 
         if (error) throw error
         if (!batchId) throw new Error('No batch id returned')
         trackEvent('batch_created', businessId, { batch_id: batchId, units_produced: units })
-        toast.success('Batch saved. Stock updated.')
+        toast.success('Saved. Stock updated from what you used.')
       }
 
       setDialogOpen(false)
@@ -288,6 +351,11 @@ export function ProductionPageClient({
 
   const totalProduced = batches.reduce((sum, b) => sum + b.units_produced, 0)
   const totalRemaining = batches.reduce((sum, b) => sum + b.units_remaining, 0)
+  const totalSoldFromBatches = batches.reduce(
+    (sum, b) =>
+      sum + Math.max(0, b.units_produced - b.units_given_away - b.units_remaining),
+    0
+  )
 
   function lineUsageUnitName(line: LineRow): string | null {
     const it = stockItems.find((s) => s.id === line.itemId)
@@ -301,14 +369,14 @@ export function ProductionPageClient({
   return (
     <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Baking</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Production</h1>
           <p className="text-gray-600 mt-1">
-            Log each bake here. Say which ingredients you used and how many units you made. Operbase pulls
-            stock down and works out production cost.{' '}
+            Record what you made. Enter what you used (in your recipe units); we take stock from the oldest
+            purchases first unless you pick a specific delivery.{' '}
             <Link href="/dashboard/stock" className="text-amber-700 underline font-medium">
-              Add ingredients first
+              Add stock first
             </Link>{' '}
-            if you haven&apos;t already.
+            if something is missing.
           </p>
         </div>
 
@@ -317,13 +385,13 @@ export function ProductionPageClient({
             <DialogTrigger asChild>
               <Button size="lg" className="bg-amber-600 hover:bg-amber-700 min-h-12 text-base shrink-0">
                 <Plus size={20} className="mr-2" />
-                Log a batch
+                Record production
               </Button>
             </DialogTrigger>
             <DialogContent className="max-h-[90vh] overflow-y-auto max-w-lg">
               <DialogHeader>
                 <DialogTitle className="text-xl">
-                  {editingBatch ? 'Edit batch' : 'New batch'}
+                  {editingBatch ? 'Edit run' : 'Record production'}
                 </DialogTitle>
               </DialogHeader>
               <form noValidate onSubmit={handleSave} className="space-y-4">
@@ -379,6 +447,25 @@ export function ProductionPageClient({
                     disabled={!!editingBatch?.has_inventory_lines}
                   />
                 </div>
+                {!editingBatch && (
+                  <div>
+                    <Label className="text-base">Samples, waste, or gifts (optional)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      inputMode="decimal"
+                      value={form.unitsGivenAway}
+                      onChange={(e) => setForm({ ...form, unitsGivenAway: e.target.value })}
+                      placeholder="0 — not sold, but still part of this run"
+                      className="mt-2 min-h-11 text-base"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Profit only counts sales; cost still spreads across everything you made, including
+                      these.
+                    </p>
+                  </div>
+                )}
                 <div>
                   <Label htmlFor="date" className="text-base">
                     Date
@@ -406,13 +493,14 @@ export function ProductionPageClient({
                 {!editingBatch && (
                   <div className="space-y-3 border rounded-lg p-3 bg-amber-50/40">
                     <div className="flex justify-between items-center gap-2">
-                      <Label className="text-base font-medium">Ingredients used</Label>
+                      <Label className="text-base font-medium">What did you use?</Label>
                       <Button type="button" size="sm" variant="outline" onClick={addLine}>
                         + Add row
                       </Button>
                     </div>
                     <p className="text-xs text-gray-600">
-                      Pick from stock. For items counted in <strong>cups</strong>, use the cup buttons.
+                      Amounts are in each item’s recipe unit (cups, grams, eggs…). Use the shortcuts when you
+                      see them.
                     </p>
                     {lines.map((line, index) => {
                       const cupItem = lineUsageUnitName(line) === 'cup'
@@ -423,12 +511,15 @@ export function ProductionPageClient({
                             onChange={(e) => {
                               const v = e.target.value
                               setLines((prev) =>
-                                prev.map((row, i) => (i === index ? { ...row, itemId: v } : row))
+                                prev.map((row, i) =>
+                                  i === index ? { ...row, itemId: v, purchaseLotId: '' } : row
+                                )
                               )
+                              if (v) void fetchLotsForItem(v)
                             }}
                             className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-base min-h-11"
                           >
-                            <option value="">Pick an ingredient</option>
+                            <option value="">Pick an item</option>
                             {stockItems.map((it) => (
                               <option key={it.id} value={it.id}>
                                 {it.name} · {it.usage_unit_name}
@@ -457,6 +548,43 @@ export function ProductionPageClient({
                               onPick={(n) => setLineQty(index, String(n))}
                             />
                           )}
+                          {line.itemId ? (
+                            <div>
+                              <Label className="text-xs text-gray-600 font-normal">
+                                Which delivery to use? (optional)
+                              </Label>
+                              <select
+                                value={line.purchaseLotId}
+                                onChange={(e) =>
+                                  setLines((prev) =>
+                                    prev.map((row, i) =>
+                                      i === index
+                                        ? { ...row, purchaseLotId: e.target.value }
+                                        : row
+                                    )
+                                  )
+                                }
+                                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm min-h-10 mt-1"
+                              >
+                                <option value="">Oldest stock first (recommended)</option>
+                                {(lotOptionsByItem[line.itemId] ?? []).map((lot) => {
+                                  const u = stockItems.find((s) => s.id === line.itemId)
+                                    ?.usage_unit_name
+                                  return (
+                                    <option key={lot.id} value={lot.id}>
+                                      {new Date(lot.purchased_at).toLocaleDateString()} ·{' '}
+                                      {Number(lot.quantity_remaining).toFixed(2)} {u ?? ''} left @{' '}
+                                      {formatCurrency(
+                                        Number(lot.cost_per_usage_unit),
+                                        currency
+                                      )}
+                                      /{u ?? 'unit'}
+                                    </option>
+                                  )
+                                })}
+                              </select>
+                            </div>
+                          ) : null}
                           {lines.length > 1 && (
                             <Button
                               type="button"
@@ -482,7 +610,7 @@ export function ProductionPageClient({
                 >
                   {isSubmitting ? (
                     <><Loader2 size={18} className="mr-2 animate-spin" />Saving…</>
-                  ) : editingBatch ? 'Save' : 'Save batch'}
+                  ) : editingBatch ? 'Save' : 'Save production'}
                 </Button>
               </form>
             </DialogContent>
@@ -520,7 +648,7 @@ export function ProductionPageClient({
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">
-                {(totalProduced - totalRemaining).toFixed(0)}
+                {totalSoldFromBatches.toFixed(0)}
               </div>
             </CardContent>
           </Card>
@@ -535,8 +663,8 @@ export function ProductionPageClient({
               <p className="text-center text-gray-500 py-8">Loading...</p>
             ) : batches.length === 0 ? (
               <p className="text-center text-gray-500 py-8 max-w-lg mx-auto leading-relaxed">
-                No batches yet. Tap Log a batch when you finish a run. We will work out production cost from
-                the ingredients you pick.
+                Nothing recorded yet. Tap Record production when you finish a run — we work out cost from
+                what you used.
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -544,9 +672,10 @@ export function ProductionPageClient({
                   <TableHeader>
                     <TableRow>
                       <TableHead>Product / name</TableHead>
-                      <TableHead>Produced</TableHead>
-                      <TableHead>Remaining</TableHead>
-                      <TableHead>Batch cost</TableHead>
+                      <TableHead>Made</TableHead>
+                      <TableHead>Given / waste</TableHead>
+                      <TableHead>Left to sell</TableHead>
+                      <TableHead>Run cost</TableHead>
                       <TableHead>Cost / unit</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead>Actions</TableHead>
@@ -565,6 +694,7 @@ export function ProductionPageClient({
                             )}
                           </TableCell>
                           <TableCell>{batch.units_produced}</TableCell>
+                          <TableCell>{batch.units_given_away > 0 ? batch.units_given_away : '—'}</TableCell>
                           <TableCell>{batch.units_remaining}</TableCell>
                           <TableCell>
                             {batch.cost_of_goods != null ? formatCurrency(cogs, currency) : '-'}

@@ -7,13 +7,17 @@ It is **curated, not exhaustive**: it explains structure, conventions, and impor
 
 ### Roadmap & phase scope
 
-Refer to [`roadmap.md`](./roadmap.md) for:
+**Prompt (copy for tools):**
 
-- **Current phase**
-- **Allowed scope**
-- **Internal API structure (target + what exists today)**
+Refer to `docs/roadmap.md` for:
 
-**Do not implement features outside the current phase.**
+- current phase  
+- allowed scope  
+- API structure  
+
+Do not implement features outside the current phase.
+
+From this folder, open [`roadmap.md`](./roadmap.md) (same file).
 
 ---
 
@@ -90,6 +94,8 @@ cd apps/web && npm install
 #    packages/supabase/migrations/20260403000009_sales_product_name_dashboard_period.sql
 #    packages/supabase/migrations/20260403000010_weighted_average_cost.sql
 #    packages/supabase/migrations/20260403000011_per_product_costing.sql
+#    packages/supabase/migrations/20260403000012_purchase_lots_fifo.sql
+#    packages/supabase/migrations/20260403000013_production_giveaway_units.sql
 #    packages/supabase/seed/units.sql
 
 # 3. Start dev server

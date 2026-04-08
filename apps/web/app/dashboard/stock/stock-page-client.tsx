@@ -306,16 +306,15 @@ export function StockPageClient({
 
         const openingPurchase = parseFloat(form.openingPurchaseQty)
         if (openingPurchase > 0) {
-          const usageQty = usageQuantityFromPurchaseQty(openingPurchase, ratio)
-          const cpu = costPerUsageUnit(costPurchase, ratio)
-          await supabase.from('stock_entries').insert({
-            business_id: businessId,
-            item_id: newItem.id,
-            quantity: usageQty,
-            cost_per_unit: cpu,
-            source: 'purchase',
-            note: 'Opening stock',
+          const totalPaid = costPurchase * openingPurchase
+          const { error: lotErr } = await supabase.rpc('add_purchase_lot', {
+            p_business_id: businessId,
+            p_item_id: newItem.id,
+            p_purchase_qty: openingPurchase,
+            p_total_cost_paid: totalPaid,
+            p_note: 'Opening stock',
           })
+          if (lotErr) throw lotErr
         }
 
         trackEvent('item_created', businessId, { item_type: activeTab })
@@ -328,7 +327,7 @@ export function StockPageClient({
       const code = (error as Record<string, unknown>)?.code
       if (code === '23505') {
         toast.error(
-          `You already have an item called "${form.name.trim()}". Use the Restock button to add more stock.`
+          `You already have an item called "${form.name.trim()}". Use Add stock on the list to buy more.`
         )
       } else {
         toast.error(friendlyError(error, 'Failed to save'))
@@ -368,15 +367,14 @@ export function StockPageClient({
     try {
       const ratio = restockItem.conversion_ratio > 0 ? restockItem.conversion_ratio : 1
       const usageQty = usageQuantityFromPurchaseQty(purchaseQty, ratio)
-      const cpu = costPerUsageUnit(costPerPurchase, ratio)
+      const totalPaid = costPerPurchase * purchaseQty
 
-      const { error } = await supabase.from('stock_entries').insert({
-        business_id: businessId,
-        item_id: restockItem.id,
-        quantity: usageQty,
-        cost_per_unit: cpu,
-        source: 'purchase',
-        note: 'Restock',
+      const { error } = await supabase.rpc('add_purchase_lot', {
+        p_business_id: businessId,
+        p_item_id: restockItem.id,
+        p_purchase_qty: purchaseQty,
+        p_total_cost_paid: totalPaid,
+        p_note: 'Add stock',
       })
 
       if (error) throw error
@@ -417,8 +415,8 @@ export function StockPageClient({
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Stock</h1>
           <p className="text-gray-600 mt-1">
-            Track what you buy and use. Add ingredients and packaging here. Operbase figures your costs for
-            you.
+            Add stock when you shop: ingredients and packaging. You buy in bags, crates, or buckets; we track
+            what you use in cups, grams, or pieces. Costs update automatically.
           </p>
         </div>
 
@@ -446,7 +444,7 @@ export function StockPageClient({
                   />
                 </div>
                 <div>
-                  <Label htmlFor="cost">Price per unit</Label>
+                  <Label htmlFor="cost">What you pay for one purchase</Label>
                   <Input
                     id="cost"
                     type="number"
@@ -459,7 +457,8 @@ export function StockPageClient({
                     className="min-h-11 text-base"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Enter the price in {currency} for one bag, kilo, box, or whatever you buy.
+                    One bag, crate, paint, or pack, in {currency}. We split cost across recipe units using
+                    your conversion below.
                   </p>
                 </div>
                 {!editingItem && (

@@ -15,3 +15,5 @@ Refer to `docs/roadmap.md` for:
 - API structure  
 
 Do not implement features outside the current phase.
+
+Canonical docs live in **`docs/`** (`docs/AGENTS.md`, `docs/roadmap.md`).

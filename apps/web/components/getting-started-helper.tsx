@@ -38,11 +38,11 @@ const steps = [
   },
   {
     icon: ChefHat,
-    label: 'Baking',
-    title: 'Record what you baked today',
-    description: 'Log each bake. Ingredients come off your stock automatically.',
+    label: 'Production',
+    title: 'Record what you made today',
+    description: 'Log each run. What you used comes off stock automatically (oldest purchases first).',
     href: '/dashboard/production',
-    cta: 'Log a batch',
+    cta: 'Record production',
     primary: false,
   },
   {

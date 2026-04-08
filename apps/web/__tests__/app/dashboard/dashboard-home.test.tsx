@@ -214,10 +214,10 @@ describe('DashboardHomeClient', () => {
     expect(screen.queryByText('This month: what you spent on each item')).toBeNull()
   })
 
-  it('renders nav links to Stock, Baking, Sales', () => {
+  it('renders nav links to Stock, Production, Sales', () => {
     renderHome()
     expect(screen.getByText('Stock')).toBeTruthy()
-    expect(screen.getByText('Baking')).toBeTruthy()
+    expect(screen.getByText('Production')).toBeTruthy()
     expect(screen.getByText('Sales')).toBeTruthy()
   })
 

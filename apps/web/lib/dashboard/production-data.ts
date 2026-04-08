@@ -6,6 +6,8 @@ export type ProductionBatchRow = {
   product_name: string
   units_produced: number
   units_remaining: number
+  /** Samples, waste, gifts — not for sale (still part of production cost). */
+  units_given_away: number
   cost_of_goods: number | null
   notes: string | null
   produced_at: string
@@ -51,6 +53,8 @@ export async function loadProductionInitial(
       product_name: products?.name ?? notes ?? 'Unnamed batch',
       units_produced: Number(b.units_produced),
       units_remaining: Number(b.units_remaining),
+      units_given_away:
+        b.units_given_away != null ? Number(b.units_given_away) : 0,
       cost_of_goods: b.cost_of_goods != null ? Number(b.cost_of_goods) : null,
       notes,
       produced_at: b.produced_at as string,

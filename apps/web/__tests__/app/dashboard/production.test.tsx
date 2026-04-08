@@ -56,6 +56,7 @@ const initialBatches: ProductionBatchRow[] = MOCK_BATCHES.map((b) => ({
     (b.products as { name?: string } | null)?.name ?? (b.notes as string) ?? 'Unnamed batch',
   units_produced: b.units_produced,
   units_remaining: b.units_remaining,
+  units_given_away: 0,
   cost_of_goods: b.cost_of_goods,
   notes: b.notes as string,
   produced_at: b.produced_at as string,
@@ -113,15 +114,15 @@ beforeEach(() => {
 describe('ProductionPage', () => {
   it('renders the page header', async () => {
     renderProduction()
-    expect(screen.getByRole('heading', { name: /^baking$/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^production$/i })).toBeInTheDocument()
     expect(
-      screen.getByText(/log each bake here/i)
+      screen.getByText(/record what you made/i)
     ).toBeInTheDocument()
   })
 
-  it('shows Log a batch button', () => {
+  it('shows Record production button', () => {
     renderProduction()
-    expect(screen.getByRole('button', { name: /log a batch/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /record production/i })).toBeInTheDocument()
   })
 
   it('displays batches from Supabase', async () => {
@@ -140,15 +141,15 @@ describe('ProductionPage', () => {
     })
   })
 
-  it('opens New Batch dialog', async () => {
+  it('opens Record production dialog', async () => {
     const user = userEvent.setup()
     renderProduction()
 
-    await user.click(screen.getByRole('button', { name: /log a batch/i }))
+    await user.click(screen.getByRole('button', { name: /record production/i }))
 
     await waitFor(() => {
       expect(screen.getByRole('dialog')).toBeInTheDocument()
-      expect(screen.getByText('New batch')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: /record production/i })).toBeInTheDocument()
     })
   })
 
@@ -156,10 +157,10 @@ describe('ProductionPage', () => {
     const user = userEvent.setup()
     renderProduction()
 
-    await user.click(screen.getByRole('button', { name: /log a batch/i }))
+    await user.click(screen.getByRole('button', { name: /record production/i }))
     const dialog = await screen.findByRole('dialog')
 
-    await user.click(within(dialog).getByRole('button', { name: /save batch/i }))
+    await user.click(within(dialog).getByRole('button', { name: /save production/i }))
 
     expect(toast.error).toHaveBeenCalledWith('Please fill in all required fields')
   })
@@ -194,12 +195,12 @@ describe('ProductionPage', () => {
 
     renderProduction()
 
-    await user.click(screen.getByRole('button', { name: /log a batch/i }))
+    await user.click(screen.getByRole('button', { name: /record production/i }))
     const dlg = await screen.findByRole('dialog')
 
     await user.click(within(dlg).getByRole('button', { name: /^baguettes$/i }))
     await user.type(within(dlg).getByPlaceholderText(/or type a number/i), '75')
-    await user.click(within(dlg).getByRole('button', { name: /save batch/i }))
+    await user.click(within(dlg).getByRole('button', { name: /save production/i }))
 
     await waitFor(() => {
       expect(rpcMock).toHaveBeenCalledTimes(2)
@@ -216,9 +217,10 @@ describe('ProductionPage', () => {
           p_display_name: 'Baguettes',
           p_product_id: 'prod-baguette',
           p_lines: [],
+          p_units_not_for_sale: 0,
         })
       )
-      expect(toast.success).toHaveBeenCalledWith('Batch saved. Stock updated.')
+      expect(toast.success).toHaveBeenCalledWith('Saved. Stock updated from what you used.')
     })
   })
 
