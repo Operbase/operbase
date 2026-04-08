@@ -1,7 +1,15 @@
 import '@testing-library/jest-dom'
 import { vi } from 'vitest'
 
-// Mock Next.js router
+// Radix / cmdk measure popovers and lists in JSDOM
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+
+// Mock Next.js router + search params
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: vi.fn(),
@@ -10,6 +18,7 @@ vi.mock('next/navigation', () => ({
     back: vi.fn(),
   }),
   usePathname: () => '/dashboard',
+  useSearchParams: () => new URLSearchParams(),
   redirect: vi.fn(),
 }))
 

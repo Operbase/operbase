@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { DashboardBusinessSnapshot } from '@/lib/dashboard/cached-dashboard-context'
+import { resolveBusinessTimeZone } from '@/lib/business-time'
 
 export interface BusinessInfo {
   businessId: string | null
@@ -10,6 +11,7 @@ export interface BusinessInfo {
   brandColor: string
   logoUrl: string | null
   currency: string
+  timezone: string
   loading: boolean
   error: string | null
   refetch: () => void
@@ -21,7 +23,7 @@ type UserBusinessRow = {
     name?: string
     brand_color?: string | null
     logo_url?: string | null
-    business_settings?: { currency?: string } | null
+    business_settings?: { currency?: string; timezone?: string } | null
   } | null
 }
 
@@ -32,6 +34,7 @@ function applyBusinessRow(
     setBrandColor: (v: string) => void
     setLogoUrl: (v: string | null) => void
     setCurrency: (v: string) => void
+    setTimezone: (v: string) => void
   },
   data: UserBusinessRow | null
 ) {
@@ -41,6 +44,7 @@ function applyBusinessRow(
   setters.setBrandColor(biz?.brand_color ?? '#d97706')
   setters.setLogoUrl(biz?.logo_url ?? null)
   setters.setCurrency(biz?.business_settings?.currency ?? 'USD')
+  setters.setTimezone(resolveBusinessTimeZone(biz?.business_settings?.timezone))
 }
 
 /**
@@ -56,6 +60,9 @@ export function useBusiness(initialBusiness: DashboardBusinessSnapshot | null): 
   const [brandColor, setBrandColor] = useState(() => initialBusiness?.brandColor ?? '#d97706')
   const [logoUrl, setLogoUrl] = useState<string | null>(() => initialBusiness?.logoUrl ?? null)
   const [currency, setCurrency] = useState(() => initialBusiness?.currency ?? 'USD')
+  const [timezone, setTimezone] = useState(() =>
+    resolveBusinessTimeZone(initialBusiness?.timezone)
+  )
   const [loading, setLoading] = useState(() => !initialBusiness?.businessId)
   const [error, setError] = useState<string | null>(null)
 
@@ -75,7 +82,9 @@ export function useBusiness(initialBusiness: DashboardBusinessSnapshot | null): 
 
       const { data, error: bizError } = await supabase
         .from('user_businesses')
-        .select('business_id, businesses(name, brand_color, logo_url, business_settings(currency))')
+        .select(
+          'business_id, businesses(name, brand_color, logo_url, business_settings(currency, timezone))'
+        )
         .eq('user_id', user.id)
         .limit(1)
         .maybeSingle()
@@ -89,6 +98,7 @@ export function useBusiness(initialBusiness: DashboardBusinessSnapshot | null): 
           setBrandColor,
           setLogoUrl,
           setCurrency,
+          setTimezone,
         },
         data as UserBusinessRow | null
       )
@@ -121,13 +131,25 @@ export function useBusiness(initialBusiness: DashboardBusinessSnapshot | null): 
     setBrandColor(initialBusiness.brandColor)
     setLogoUrl(initialBusiness.logoUrl)
     setCurrency(initialBusiness.currency)
+    setTimezone(resolveBusinessTimeZone(initialBusiness.timezone))
   }, [
     initialBusiness?.businessId,
     initialBusiness?.businessName,
     initialBusiness?.brandColor,
     initialBusiness?.logoUrl,
     initialBusiness?.currency,
+    initialBusiness?.timezone,
   ])
 
-  return { businessId, businessName, brandColor, logoUrl, currency, loading, error, refetch }
+  return {
+    businessId,
+    businessName,
+    brandColor,
+    logoUrl,
+    currency,
+    timezone,
+    loading,
+    error,
+    refetch,
+  }
 }

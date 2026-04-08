@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,6 +14,19 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import {
   Table,
   TableBody,
   TableCell,
@@ -20,7 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Plus, Trash2, DollarSign, Loader2 } from 'lucide-react'
+import { Plus, Trash2, Loader2, ChevronsUpDown, ChevronDown, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { useBusinessContext } from '@/providers/business-provider'
@@ -30,22 +44,58 @@ import { COMMON_SALE_AMOUNTS, COMMON_SALE_PRICES } from '@/lib/bakery/simple-pre
 import { PriceChips, WholeNumberChips } from '@/components/bakery-quick-picks'
 import { friendlyError } from '@/lib/errors'
 import {
+  businessCalendarDateToIsoUtc,
+  formatCalendarDateInTimeZone,
+  formatFriendlyDate,
+  salesSinceForDashboardPeriod,
+  utcInstantFromBusinessCalendarDate,
+} from '@/lib/business-time'
+import { profitTextClass, profitCardClass, profitRowClass } from '@/lib/dashboard/profit-tone'
+import {
   saleCogsFromProductAvg,
   weightedAverageOutputUnitCost,
 } from '@/lib/bakery/per-product-cogs'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from 'recharts'
+import { saleCogsFromBatch } from '@/lib/bakery/cost'
+import { cn } from '@/lib/utils'
 import type { SalesRow } from '@/lib/dashboard/sales-data'
 
 type Sale = SalesRow
+
+type SaleSource =
+  | {
+      kind: 'batch'
+      batchId: string
+      productId: string
+      productName: string
+      unitsRemaining: number
+      unitsProduced: number
+      costOfGoods: number | null
+      producedAt: string
+    }
+  | { kind: 'quick'; productId: string; productName: string }
+
+type BatchItemLine = { itemName: string; lineCost: number }
+
+type ProductRow = { id: string; name: string }
+
+type BatchOptionRow = {
+  id: string
+  product_id: string | null
+  units_remaining: number
+  units_produced: number
+  cost_of_goods: number | null
+  produced_at: string
+  products: { name: string | null } | null
+}
 
 export function SalesPageClient({
   initialSales,
 }: {
   initialSales: SalesRow[]
 }) {
-  const { businessId, currency, brandColor } = useBusinessContext()
+  const { businessId, currency, timezone } = useBusinessContext()
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const [sales, setSales] = useState<Sale[]>(initialSales)
   const [isLoading, setIsLoading] = useState(false)
   const skipSsrListFetch = useRef(true)
@@ -57,12 +107,26 @@ export function SalesPageClient({
   const [search, setSearch] = useState('')
   const [dateRange, setDateRange] = useState<'all' | 'week' | 'month'>('month')
   const [form, setForm] = useState({
-    productName: '',
     customerName: '',
     unitsSold: '',
     unitPrice: '',
-    soldAt: new Date().toISOString().split('T')[0],
+    soldAt: formatCalendarDateInTimeZone(new Date(), timezone),
   })
+  const [saleSource, setSaleSource] = useState<SaleSource | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [productsForPicker, setProductsForPicker] = useState<ProductRow[]>([])
+  const [batchesForPicker, setBatchesForPicker] = useState<BatchOptionRow[]>([])
+  const [batchItemLines, setBatchItemLines] = useState<BatchItemLine[]>([])
+  const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null)
+  const [salesDetailsOpen, setSalesDetailsOpen] = useState(false)
+  const [salePreview, setSalePreview] = useState<{
+    revenue: number
+    cost: number | null
+    profit: number | null
+    costPerUnit: number | null
+    profitPerUnit: number | null
+    ingredientLines: { name: string; cost: number }[]
+  } | null>(null)
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -77,17 +141,17 @@ export function SalesPageClient({
     let query = client
       .from('sales')
       .select(
-        'id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, product_id, product_name, customers(name)'
+        'id, batch_id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, product_id, product_name, customers(name)'
       )
       .eq('business_id', businessId)
 
     // Date range filter
     if (dateRange !== 'all') {
-      const now = new Date()
-      const start = new Date(now)
-      if (dateRange === 'week') start.setDate(now.getDate() - 7)
-      else if (dateRange === 'month') start.setMonth(now.getMonth() - 1)
-      query = query.gte('sold_at', start.toISOString())
+      const period = dateRange === 'week' ? 'week' : 'month'
+      const start = salesSinceForDashboardPeriod(period, timezone)
+      if (start) {
+        query = query.gte('sold_at', start.toISOString())
+      }
     }
 
     const { data, error } = await query
@@ -108,6 +172,7 @@ export function SalesPageClient({
           customer_name: c?.name ?? 'Walk-in',
           product_id: (s.product_id as string | null) ?? null,
           product_name: (s.product_name as string | null) ?? null,
+          batch_id: (s.batch_id as string | null) ?? null,
           units_sold: Number(s.units_sold),
           unit_price: Number(s.unit_price),
           revenue: Number(s.revenue),
@@ -118,7 +183,7 @@ export function SalesPageClient({
       })
     )
     setIsLoading(false)
-  }, [businessId, page, dateRange])
+  }, [businessId, page, dateRange, timezone])
 
   useEffect(() => {
     setSales(initialSales)
@@ -134,52 +199,210 @@ export function SalesPageClient({
     void fetchSales()
   }, [businessId, fetchSales, page, dateRange])
 
-  /**
-   * COGS for this sale: average cost per unit from batches of the same product only.
-   * Returns null when there is no production with that product yet (cost unknown).
-   */
-  async function computeAutoCogs(
-    productId: string,
-    unitsSold: number
-  ): Promise<number | null> {
-    if (!businessId) return null
-    const { data, error } = await supabase
-      .from('batches')
-      .select('cost_of_goods, units_produced')
-      .eq('business_id', businessId)
-      .eq('product_id', productId)
-      .gt('units_produced', 0)
-      .not('cost_of_goods', 'is', null)
+  const computeAutoCogs = useCallback(
+    async (productId: string, unitsSold: number): Promise<number | null> => {
+      if (!businessId) return null
+      const { data, error } = await supabase
+        .from('batches')
+        .select('cost_of_goods, units_produced')
+        .eq('business_id', businessId)
+        .eq('product_id', productId)
+        .gt('units_produced', 0)
+        .not('cost_of_goods', 'is', null)
 
-    if (error) {
-      console.error('[sales] batches for COGS:', error.message)
-      return null
+      if (error) {
+        console.error('[sales] batches for cost:', error.message)
+        return null
+      }
+
+      const avg = weightedAverageOutputUnitCost(data ?? [])
+      return saleCogsFromProductAvg(unitsSold, avg)
+    },
+    [businessId, supabase]
+  )
+
+  const loadSalePickerData = useCallback(async () => {
+    if (!businessId) return
+    const [prodRes, batchRes] = await Promise.all([
+      supabase.from('products').select('id, name').eq('business_id', businessId).order('name'),
+      supabase
+        .from('batches')
+        .select(
+          'id, product_id, units_remaining, units_produced, cost_of_goods, produced_at, products(name)'
+        )
+        .eq('business_id', businessId)
+        .gt('units_remaining', 0)
+        .order('produced_at', { ascending: true }),
+    ])
+    if (!prodRes.error && prodRes.data) {
+      setProductsForPicker(prodRes.data as ProductRow[])
     }
+    if (!batchRes.error && batchRes.data) {
+      setBatchesForPicker(batchRes.data as BatchOptionRow[])
+    }
+  }, [businessId, supabase])
 
-    const avg = weightedAverageOutputUnitCost(data ?? [])
-    return saleCogsFromProductAvg(unitsSold, avg)
-  }
+  useEffect(() => {
+    if (!dialogOpen || !businessId) {
+      setSalePreview(null)
+      return
+    }
+    const u = parseFloat(form.unitsSold)
+    const price = parseFloat(form.unitPrice)
+    if (!saleSource || !u || u <= 0 || !price || price <= 0) {
+      setSalePreview(null)
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      try {
+        const revenue = u * price
+        let cost: number | null = null
+        let ingredientLines: { name: string; cost: number }[] = []
+
+        if (saleSource.kind === 'batch') {
+          const c = saleSource.costOfGoods
+          const prod = saleSource.unitsProduced
+          if (c != null && prod > 0) {
+            cost = saleCogsFromBatch(u, c, prod)
+            for (const line of batchItemLines) {
+              const share = u / prod
+              ingredientLines.push({
+                name: line.itemName,
+                cost: line.lineCost * share,
+              })
+            }
+          }
+        } else {
+          cost = await computeAutoCogs(saleSource.productId, u)
+        }
+
+        if (cancelled) return
+        const profit = cost != null ? revenue - cost : null
+        const costPerUnit = cost != null && u > 0 ? cost / u : null
+        const profitPerUnit =
+          costPerUnit != null ? price - costPerUnit : profit != null && u > 0 ? profit / u : null
+
+        setSalePreview({
+          revenue,
+          cost,
+          profit,
+          costPerUnit,
+          profitPerUnit,
+          ingredientLines,
+        })
+      } catch {
+        if (!cancelled) setSalePreview(null)
+      }
+    }, 320)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [
+    dialogOpen,
+    businessId,
+    saleSource,
+    form.unitsSold,
+    form.unitPrice,
+    supabase,
+    computeAutoCogs,
+    batchItemLines,
+  ])
+
+  useEffect(() => {
+    if (!dialogOpen || !businessId) {
+      return
+    }
+    void loadSalePickerData()
+  }, [dialogOpen, businessId, loadSalePickerData])
+
+  useEffect(() => {
+    if (!dialogOpen || !businessId || !saleSource || saleSource.kind !== 'batch') {
+      setBatchItemLines([])
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const { data, error } = await supabase
+        .from('batch_items')
+        .select('cost, items(name)')
+        .eq('batch_id', saleSource.batchId)
+      if (cancelled || error) return
+      const lines: BatchItemLine[] = (data ?? []).map((row: Record<string, unknown>) => {
+        const it = row.items as { name?: string } | null
+        return {
+          itemName: it?.name ?? 'Ingredient',
+          lineCost: Number(row.cost ?? 0),
+        }
+      })
+      setBatchItemLines(lines)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [dialogOpen, businessId, saleSource, supabase])
+
+  const autoOpenedForBatch = useRef(false)
+  useEffect(() => {
+    const b = searchParams.get('batch')
+    if (b && !autoOpenedForBatch.current) {
+      autoOpenedForBatch.current = true
+      setDialogOpen(true)
+    }
+  }, [searchParams])
+
+  const prefApplied = useRef(false)
+  useEffect(() => {
+    if (!dialogOpen || prefApplied.current || !businessId) return
+    const bid = searchParams.get('batch')
+    if (!bid || batchesForPicker.length === 0) return
+    const b = batchesForPicker.find((x) => x.id === bid)
+    if (!b?.product_id || !b.products?.name) return
+    prefApplied.current = true
+    setSaleSource({
+      kind: 'batch',
+      batchId: b.id,
+      productId: b.product_id,
+      productName: b.products.name,
+      unitsRemaining: Number(b.units_remaining),
+      unitsProduced: Number(b.units_produced),
+      costOfGoods: b.cost_of_goods != null ? Number(b.cost_of_goods) : null,
+      producedAt: b.produced_at,
+    })
+    router.replace('/dashboard/sales', { scroll: false })
+  }, [dialogOpen, businessId, searchParams, batchesForPicker, router])
+
+  useEffect(() => {
+    if (!dialogOpen) prefApplied.current = false
+  }, [dialogOpen])
 
   function openAdd() {
     setEditingSale(null)
+    setSaleSource(null)
+    setPickerOpen(false)
     setForm({
-      productName: '',
       customerName: '',
       unitsSold: '',
       unitPrice: '',
-      soldAt: new Date().toISOString().split('T')[0],
+      soldAt: formatCalendarDateInTimeZone(new Date(), timezone),
     })
     setDialogOpen(true)
   }
 
   function openEdit(sale: Sale) {
     setEditingSale(sale)
+    setPickerOpen(false)
+    if (sale.product_id && sale.product_name) {
+      setSaleSource({ kind: 'quick', productId: sale.product_id, productName: sale.product_name })
+    } else {
+      setSaleSource(null)
+    }
     setForm({
-      productName: sale.product_name ?? '',
       customerName: sale.customer_name === 'Walk-in' ? '' : sale.customer_name,
       unitsSold: sale.units_sold.toString(),
       unitPrice: sale.unit_price.toString(),
-      soldAt: sale.sold_at.split('T')[0],
+      soldAt: formatCalendarDateInTimeZone(new Date(sale.sold_at), timezone),
     })
     setDialogOpen(true)
   }
@@ -188,9 +411,14 @@ export function SalesPageClient({
     e.preventDefault()
     if (!businessId || isSubmitting) return
 
-    const productName = form.productName.trim()
+    if (!saleSource) {
+      toast.error('Pick what you sold from the list.')
+      return
+    }
+
+    const productName = saleSource.productName.trim()
     if (!productName) {
-      toast.error('What did you sell? Add a product name (e.g. croissants, sourdough loaf).')
+      toast.error('Pick a product or a run that still has stock.')
       return
     }
     if (productName.length > 200) {
@@ -202,24 +430,33 @@ export function SalesPageClient({
     const price = parseFloat(form.unitPrice)
 
     if (!units || units <= 0 || !price || price <= 0) {
-      toast.error('Please enter valid units and price')
+      toast.error('Enter how many you sold and the price for each one.')
+      return
+    }
+
+    if (saleSource.kind === 'batch' && units > saleSource.unitsRemaining) {
+      toast.error(`That run only has ${saleSource.unitsRemaining} left. Lower the quantity or pick another run.`)
       return
     }
 
     setIsSubmitting(true)
 
     try {
-      const { data: productId, error: productErr } = await supabase.rpc('ensure_product', {
-        p_business_id: businessId,
-        p_name: productName,
-      })
-      if (productErr) throw productErr
-      if (!productId || typeof productId !== 'string') {
-        toast.error('Could not save the product for this sale. Try again.')
-        return
+      let productId: string
+      if (saleSource.kind === 'batch') {
+        productId = saleSource.productId
+      } else {
+        const { data: ensuredId, error: productErr } = await supabase.rpc('ensure_product', {
+          p_business_id: businessId,
+          p_name: productName,
+        })
+        if (productErr) throw productErr
+        if (!ensuredId || typeof ensuredId !== 'string') {
+          toast.error('Could not save the product for this sale. Try again.')
+          return
+        }
+        productId = ensuredId
       }
-
-      const cogs = await computeAutoCogs(productId, units)
 
       let customerId: string | null = null
 
@@ -247,6 +484,7 @@ export function SalesPageClient({
       }
 
       if (editingSale) {
+        const cogs = await computeAutoCogs(productId, units)
         const { error } = await supabase
           .from('sales')
           .update({
@@ -254,26 +492,44 @@ export function SalesPageClient({
             product_name: productName,
             units_sold: units,
             unit_price: price,
-            sold_at: form.soldAt,
+            sold_at: businessCalendarDateToIsoUtc(form.soldAt, timezone),
             cogs,
           })
           .eq('id', editingSale.id)
         if (error) throw error
         toast.success('Sale updated!')
+        if (cogs != null && units * price < cogs) {
+          toast.message('At this price you lose money on each item — raise the price or sell a smaller amount.', {
+            duration: 6500,
+          })
+        }
       } else {
-        const { error } = await supabase.from('sales').insert({
-          business_id: businessId,
-          customer_id: customerId,
-          product_id: productId,
-          product_name: productName,
-          units_sold: units,
-          unit_price: price,
-          sold_at: form.soldAt,
-          cogs,
+        const cogsQuick =
+          saleSource.kind === 'quick' ? await computeAutoCogs(productId, units) : null
+        const { error } = await supabase.rpc('record_sale_with_batch', {
+          p_business_id: businessId,
+          p_product_id: productId,
+          p_product_name: productName,
+          p_units_sold: units,
+          p_unit_price: price,
+          p_sold_at: businessCalendarDateToIsoUtc(form.soldAt, timezone),
+          p_customer_id: customerId,
+          p_batch_id: saleSource.kind === 'batch' ? saleSource.batchId : null,
+          p_cogs_if_no_batch: cogsQuick,
         })
         if (error) throw error
         trackEvent('sale_recorded', businessId, { units_sold: units, revenue: units * price })
         toast.success('Sale recorded!')
+        const rev = units * price
+        const cost =
+          saleSource.kind === 'batch' && saleSource.costOfGoods != null && saleSource.unitsProduced > 0
+            ? saleCogsFromBatch(units, saleSource.costOfGoods, saleSource.unitsProduced)
+            : cogsQuick
+        if (cost != null && rev < cost) {
+          toast.message('At this price you lose money on each item — raise the price or sell a smaller amount.', {
+            duration: 6500,
+          })
+        }
       }
 
       setDialogOpen(false)
@@ -288,7 +544,7 @@ export function SalesPageClient({
   async function handleDelete(id: string) {
     if (!confirm('Delete this sale?')) return
 
-    const { error } = await supabase.from('sales').delete().eq('id', id)
+    const { error } = await supabase.rpc('delete_sale_restores_batch', { p_sale_id: id })
     if (error) {
       toast.error(friendlyError(error))
       return
@@ -309,7 +565,7 @@ export function SalesPageClient({
 
   const chartData = Object.values(
     filteredSales.reduce((acc, s) => {
-      const date = s.sold_at.split('T')[0]
+      const date = formatCalendarDateInTimeZone(new Date(s.sold_at), timezone)
       if (!acc[date]) acc[date] = { date, revenue: 0 }
       acc[date].revenue += s.revenue
       return acc
@@ -323,9 +579,8 @@ export function SalesPageClient({
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Sales</h1>
           <p className="text-gray-600 mt-1">
-            Log what you sold, how many, at what price, and who bought (if you know). Operbase totals revenue
-            and profit for you. Cost of goods uses your logged bakes for the same product name (not mixed with
-            other products).
+            Log each sale and the price. Pick a production run when you can — we keep “what is left” accurate
+            and show whether you made money.
           </p>
         </div>
 
@@ -361,26 +616,94 @@ export function SalesPageClient({
                 Log sale
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-lg">
               <DialogHeader>
                 <DialogTitle className="text-xl">{editingSale ? 'Change sale' : 'Log sale'}</DialogTitle>
               </DialogHeader>
               <form noValidate onSubmit={handleSave} className="space-y-4">
-                <div>
-                  <Label htmlFor="productName" className="text-base">
-                    What did you sell?
-                  </Label>
-                  <Input
-                    id="productName"
-                    value={form.productName}
-                    onChange={(e) => setForm({ ...form, productName: e.target.value })}
-                    placeholder="e.g. Butter croissants, birthday cake"
-                    className="mt-2 min-h-11 text-base"
-                    required
-                    autoFocus
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Use the same name as in Production when you can, so cost lines up with those runs.
+                <div className="space-y-2">
+                  <Label className="text-base">What are you selling?</Label>
+                  <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={pickerOpen}
+                        disabled={!!editingSale}
+                        className={cn(
+                          'w-full justify-between min-h-11 text-base font-normal',
+                          !saleSource && 'text-muted-foreground'
+                        )}
+                      >
+                        {saleSource
+                          ? saleSource.kind === 'batch'
+                            ? `${saleSource.productName} · ${formatFriendlyDate(saleSource.producedAt, timezone)} · ${saleSource.unitsRemaining} left`
+                            : `${saleSource.productName} · quick sale (no run picked)`
+                          : 'Search or pick a product…'}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search products and runs…" className="h-11" />
+                        <CommandList>
+                          <CommandEmpty>Nothing matches. Add the product under Production first.</CommandEmpty>
+                          {batchesForPicker.length > 0 ? (
+                            <CommandGroup heading="From a run (uses real stock)">
+                              {batchesForPicker.map((b) => {
+                                const name = b.products?.name ?? 'Product'
+                                if (!b.product_id) return null
+                                return (
+                                  <CommandItem
+                                    key={b.id}
+                                    value={`${name} ${b.id}`}
+                                    onSelect={() => {
+                                      setSaleSource({
+                                        kind: 'batch',
+                                        batchId: b.id,
+                                        productId: b.product_id,
+                                        productName: name,
+                                        unitsRemaining: Number(b.units_remaining),
+                                        unitsProduced: Number(b.units_produced),
+                                        costOfGoods: b.cost_of_goods != null ? Number(b.cost_of_goods) : null,
+                                        producedAt: b.produced_at,
+                                      })
+                                      setPickerOpen(false)
+                                    }}
+                                  >
+                                    {name} · {formatFriendlyDate(b.produced_at, timezone)} ·{' '}
+                                    {Number(b.units_remaining)} left
+                                  </CommandItem>
+                                )
+                              })}
+                            </CommandGroup>
+                          ) : null}
+                          <CommandGroup heading="Quick sale (average cost)">
+                            {productsForPicker.map((p) => (
+                              <CommandItem
+                                key={p.id}
+                                value={p.name}
+                                onSelect={() => {
+                                  setSaleSource({
+                                    kind: 'quick',
+                                    productId: p.id,
+                                    productName: p.name,
+                                  })
+                                  setPickerOpen(false)
+                                }}
+                              >
+                                {p.name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  <p className="text-xs text-gray-600">
+                    Pick a run when you are selling from that batch. Otherwise use quick sale — we use your usual
+                    cost.
                   </p>
                 </div>
                 <div>
@@ -433,6 +756,69 @@ export function SalesPageClient({
                     </strong>
                   </p>
                 )}
+                {salePreview && salePreview.revenue > 0 ? (
+                  <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-4 space-y-3">
+                    <div className="flex justify-between items-center gap-3">
+                      <span className="text-gray-600">Cost</span>
+                      <span className="text-lg font-semibold tabular-nums text-gray-800">
+                        {salePreview.cost != null
+                          ? formatCurrency(salePreview.cost, currency)
+                          : '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center gap-3">
+                      <span className="text-gray-600">Revenue</span>
+                      <span className="text-lg font-semibold text-green-600 tabular-nums">
+                        {formatCurrency(salePreview.revenue, currency)}
+                      </span>
+                    </div>
+                    {salePreview.cost != null ? (
+                      <div className="flex justify-between items-center gap-3 pt-2 border-t">
+                        <span className="font-medium text-gray-900">Profit</span>
+                        <span className={`text-xl font-bold tabular-nums ${profitTextClass(salePreview.profit ?? 0)}`}>
+                          {formatCurrency(salePreview.profit ?? 0, currency)}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">
+                        {saleSource?.kind === 'quick'
+                          ? `Log production for "${saleSource.productName}" first to see cost and profit.`
+                          : 'No ingredient cost recorded for this run.'}
+                      </p>
+                    )}
+                    {salePreview.cost != null ? (
+                      <details className="text-sm border border-gray-200 rounded-md bg-white px-3 py-2">
+                        <summary className="cursor-pointer font-medium text-gray-800 py-1">
+                          See details
+                        </summary>
+                        <div className="pt-2 space-y-2 text-gray-600">
+                          {salePreview.profitPerUnit != null && salePreview.profitPerUnit < 0 ? (
+                            <p className="text-red-700 bg-red-50 rounded p-2">
+                              At this price you lose{' '}
+                              {formatCurrency(-salePreview.profitPerUnit, currency)} on each one.
+                            </p>
+                          ) : salePreview.profitPerUnit != null ? (
+                            <p className="text-green-700">
+                              About {formatCurrency(salePreview.profitPerUnit, currency)} profit on each one.
+                            </p>
+                          ) : null}
+                          {salePreview.ingredientLines.length > 0 ? (
+                            <ul className="text-xs space-y-1 border-t pt-2">
+                              {salePreview.ingredientLines.map((line, i) => (
+                                <li key={`${line.name}-${i}`} className="flex justify-between gap-2">
+                                  <span className="min-w-0 truncate">{line.name}</span>
+                                  <span className="tabular-nums shrink-0">
+                                    {formatCurrency(line.cost, currency)}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      </details>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div>
                   <Label htmlFor="soldAt" className="text-base">
                     Date
@@ -474,62 +860,95 @@ export function SalesPageClient({
           </Dialog>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {sales.length > 0 && totalProfit < 0 && (
+          <div
+            className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900"
+            role="status"
+          >
+            <strong className="font-semibold">These sales cost more than they brought in:</strong> raise prices,
+            cut costs, or check that production is logged.
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium text-gray-600">
-                <DollarSign size={16} className="text-green-600" />
-                Money in
-              </CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-600">What it cost</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{formatCurrency(totalRevenue, currency)}</div>
+              <div className="text-2xl font-bold text-gray-700 tabular-nums">
+                {formatCurrency(totalCogs, currency)}
+              </div>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Costs (tracked)</CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-600">Money in</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-orange-700">{formatCurrency(totalCogs, currency)}</div>
+              <div className="text-2xl font-bold text-green-600 tabular-nums">
+                {formatCurrency(totalRevenue, currency)}
+              </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="border-2 border-amber-300 bg-amber-50/50 shadow-sm">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">After costs</CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-800">You kept</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-amber-800">{formatCurrency(totalProfit, currency)}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Units sold</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalUnits.toFixed(0)}</div>
+              <div className={`text-3xl sm:text-4xl font-extrabold tabular-nums ${profitCardClass(totalProfit)}`}>
+                {formatCurrency(totalProfit, currency)}
+              </div>
+              <p className="text-xs text-gray-600 mt-2">
+                {totalProfit >= 0 ? 'After what it cost to make what you sold.' : 'Sales did not cover cost — check prices.'}
+              </p>
             </CardContent>
           </Card>
         </div>
 
-        {chartData.length > 1 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Revenue trend (last 14 days)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                  <YAxis />
-                  <Tooltip formatter={(v: number) => formatCurrency(v, currency)} />
-                  <Bar dataKey="revenue" fill={brandColor} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        )}
+        <details
+          className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm"
+          onToggle={(e) => setSalesDetailsOpen(e.currentTarget.open)}
+        >
+          <summary className="cursor-pointer font-medium text-gray-900">See details</summary>
+          <div className="mt-3 space-y-3 text-gray-700">
+            <p>
+              <strong className="tabular-nums">{totalUnits.toFixed(0)}</strong> items sold in this view.
+            </p>
+            {salesDetailsOpen && chartData.length > 1 ? (
+              <div className="pt-2">
+                <p className="text-xs font-medium text-gray-600 mb-2">Revenue by day (last 14 days in range)</p>
+                <div className="rounded-md border border-gray-200 overflow-hidden max-w-md">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 text-left text-gray-600">
+                        <th className="px-3 py-2 font-medium">Day</th>
+                        <th className="px-3 py-2 font-medium text-right">Revenue</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {chartData.map((row) => (
+                        <tr key={row.date} className="border-t border-gray-100">
+                          <td className="px-3 py-1.5 text-gray-800">
+                            {formatFriendlyDate(
+                              utcInstantFromBusinessCalendarDate(row.date, timezone),
+                              timezone
+                            )}
+                          </td>
+                          <td className="px-3 py-1.5 text-right tabular-nums font-medium text-green-700">
+                            {formatCurrency(row.revenue, currency)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : salesDetailsOpen ? (
+              <p className="text-xs text-gray-500">Not enough days with sales to show a daily breakdown.</p>
+            ) : null}
+          </div>
+        </details>
 
         <Card>
           <CardHeader>
@@ -548,58 +967,111 @@ export function SalesPageClient({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Units</TableHead>
-                      <TableHead>Unit price</TableHead>
-                      <TableHead>Revenue</TableHead>
-                      <TableHead>COGS</TableHead>
-                      <TableHead>Profit</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="w-10 p-2" />
+                      <TableHead>Sale</TableHead>
+                      <TableHead className="text-right">Profit</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredSales.map((sale) => (
-                      <TableRow key={sale.id}>
-                        <TableCell className="font-medium">
-                          {sale.product_name?.trim() ? sale.product_name : '-'}
-                        </TableCell>
-                        <TableCell className="font-medium">{sale.customer_name}</TableCell>
-                        <TableCell>{sale.units_sold}</TableCell>
-                        <TableCell>{formatCurrency(sale.unit_price, currency)}</TableCell>
-                        <TableCell className="font-semibold text-green-600">
-                          {formatCurrency(sale.revenue, currency)}
-                        </TableCell>
-                        <TableCell>
-                          {sale.cogs != null ? formatCurrency(sale.cogs, currency) : '-'}
-                        </TableCell>
-                        <TableCell>
-                          {sale.gross_profit != null ? (
-                            <span className="text-amber-800 font-medium">
-                              {formatCurrency(sale.gross_profit, currency)}
-                            </span>
-                          ) : (
-                            '-'
-                          )}
-                        </TableCell>
-                        <TableCell>{new Date(sale.sold_at).toLocaleDateString()}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="outline" onClick={() => openEdit(sale)}>
-                              Edit
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => handleDelete(sale.id)}
-                            >
-                              <Trash2 size={14} />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {filteredSales.map((sale) => {
+                      const expanded = expandedSaleId === sale.id
+                      return (
+                        <Fragment key={sale.id}>
+                          <TableRow className={profitRowClass(sale.gross_profit)}>
+                            <TableCell className="p-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0"
+                                aria-expanded={expanded}
+                                aria-label={expanded ? 'Hide sale details' : 'Show sale details'}
+                                onClick={() => setExpandedSaleId(expanded ? null : sale.id)}
+                              >
+                                {expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                              </Button>
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-medium text-base">{sale.product_name?.trim() || '—'}</div>
+                              <div className="text-sm text-gray-500">
+                                {formatFriendlyDate(sale.sold_at, timezone)}
+                                {sale.customer_name !== 'Walk-in' ? ` · ${sale.customer_name}` : ''}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {sale.gross_profit != null ? (
+                                <span className={`text-lg font-semibold tabular-nums ${profitTextClass(sale.gross_profit)}`}>
+                                  {formatCurrency(sale.gross_profit, currency)}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex gap-1 justify-end">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    if (sale.batch_id) {
+                                      toast.message(
+                                        'This sale is tied to a production run. To change it, delete this sale and log it again with the right amount and price.',
+                                        { duration: 9000 }
+                                      )
+                                      return
+                                    }
+                                    openEdit(sale)
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-gray-400 hover:text-red-600"
+                                  aria-label={`Delete sale ${sale.product_name ?? sale.id}`}
+                                  onClick={() => handleDelete(sale.id)}
+                                >
+                                  <Trash2 size={14} />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          {expanded ? (
+                            <TableRow className="bg-gray-50/80">
+                              <TableCell colSpan={4} className="p-4 text-sm text-gray-800">
+                                <div className="grid sm:grid-cols-2 gap-3 max-w-lg">
+                                  <div>
+                                    <p className="text-xs font-medium text-gray-500 uppercase">Revenue</p>
+                                    <p className="text-lg font-semibold text-green-700 tabular-nums">
+                                      {formatCurrency(sale.revenue, currency)}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-medium text-gray-500 uppercase">Cost</p>
+                                    <p className="text-lg font-semibold text-gray-800 tabular-nums">
+                                      {sale.cogs != null ? formatCurrency(sale.cogs, currency) : '—'}
+                                    </p>
+                                  </div>
+                                  <div className="sm:col-span-2 text-gray-600">
+                                    {sale.units_sold} sold at {formatCurrency(sale.unit_price, currency)} each
+                                    {' · '}
+                                    {sale.customer_name}
+                                    {sale.batch_id && (
+                                      <span className="block text-xs text-gray-500 mt-1">
+                                        Linked to a production run — use Delete, then log again, to change this
+                                        sale.
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                        </Fragment>
+                      )
+                    })}
                   </TableBody>
                 </Table>
                 {sales.length === PAGE_SIZE && (

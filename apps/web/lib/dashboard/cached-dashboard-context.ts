@@ -1,5 +1,6 @@
 import { cache } from 'react'
 import type { User } from '@supabase/supabase-js'
+import { resolveBusinessTimeZone } from '@/lib/business-time'
 import { createClient } from '@/lib/supabase/server'
 
 export type DashboardUserSnapshot = {
@@ -14,6 +15,8 @@ export type DashboardBusinessSnapshot = {
   brandColor: string
   logoUrl: string | null
   currency: string
+  /** IANA timezone for business-local calendar (from `business_settings`). */
+  timezone: string
 }
 
 function displayNameFromUser(user: User): string {
@@ -40,7 +43,9 @@ export const getCachedDashboardContext = cache(async () => {
 
   const { data, error } = await supabase
     .from('user_businesses')
-    .select('business_id, businesses(name, brand_color, logo_url, business_settings(currency))')
+    .select(
+      'business_id, businesses(name, brand_color, logo_url, business_settings(currency, timezone))'
+    )
     .eq('user_id', user.id)
     .limit(1)
     .maybeSingle()
@@ -61,7 +66,7 @@ export const getCachedDashboardContext = cache(async () => {
     name?: string
     brand_color?: string | null
     logo_url?: string | null
-    business_settings?: { currency?: string } | null
+    business_settings?: { currency?: string; timezone?: string } | null
   } | null
 
   return {
@@ -76,6 +81,7 @@ export const getCachedDashboardContext = cache(async () => {
       brandColor: biz?.brand_color ?? '#d97706',
       logoUrl: biz?.logo_url ?? null,
       currency: biz?.business_settings?.currency ?? 'USD',
+      timezone: resolveBusinessTimeZone(biz?.business_settings?.timezone),
     } satisfies DashboardBusinessSnapshot,
     supabase,
   }

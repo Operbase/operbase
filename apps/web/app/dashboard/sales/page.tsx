@@ -17,6 +17,7 @@ export default async function SalesPage() {
   const { sales } = await loadSalesInitial(
     ctx.supabase,
     ctx.business.businessId,
+    ctx.business.timezone,
     'month'
   )
 

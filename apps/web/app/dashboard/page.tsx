@@ -14,13 +14,18 @@ export default async function DashboardPage() {
     redirect('/onboarding')
   }
 
-  const home = await loadDashboardHomeData(ctx.supabase, ctx.business.businessId)
+  const home = await loadDashboardHomeData(
+    ctx.supabase,
+    ctx.business.businessId,
+    ctx.business.timezone
+  )
 
   return (
     <DashboardHomeClient
-      metrics={home.metrics}
+      todayMetrics={home.todayMetrics}
       metricsLifetime={home.metricsLifetime}
-      initialSalesPeriod={home.initialSalesPeriod}
+      atRisk={home.atRisk}
+      dailyTotals={home.dailyTotals}
       monthlySpend={home.monthlySpend}
       alerts={home.alerts}
       loadError={home.error}

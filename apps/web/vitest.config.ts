@@ -8,6 +8,11 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
+    server: {
+      deps: {
+        inline: ['date-fns', 'date-fns-tz'],
+      },
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

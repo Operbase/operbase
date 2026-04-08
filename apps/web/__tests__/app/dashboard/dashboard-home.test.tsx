@@ -2,44 +2,27 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-// --- mock recharts to avoid canvas/resize issues in jsdom ---
-vi.mock('recharts', () => ({
-  ResponsiveContainer: ({ children }: any) => <div>{children}</div>,
-  BarChart: ({ children }: any) => <div data-testid="bar-chart">{children}</div>,
-  Bar: () => null,
-  XAxis: () => null,
-  YAxis: () => null,
-  CartesianGrid: () => null,
-  Tooltip: () => null,
-  PieChart: () => null,
-  Pie: () => null,
-  Cell: () => null,
-}))
-
-// --- mock getting-started-helper so it doesn't need localStorage ---
 vi.mock('@/components/getting-started-helper', () => ({
   GettingStartedHelper: () => <div data-testid="getting-started-helper" />,
 }))
 
-// --- mock next/navigation ---
 const mockRefresh = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: mockRefresh }),
 }))
 
-// --- mock trackEvent (silent) ---
 const mockTrackEvent = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/lib/services/events', () => ({
-  trackEvent: (...args: any[]) => mockTrackEvent(...args),
+  trackEvent: (...args: unknown[]) => mockTrackEvent(...args),
 }))
 
-// --- mock business context ---
 const mockBizContext = {
   businessId: 'biz-123',
   businessName: 'Test Bakery',
   brandColor: '#d97706',
   logoUrl: null,
   currency: 'USD',
+  timezone: 'Africa/Lagos',
   loading: false,
   error: null,
   refetch: vi.fn(),
@@ -54,7 +37,8 @@ import type {
   DashboardMetrics,
   DashboardSpendRow,
   DashboardAlertItem,
-  DashboardSalesPeriod,
+  DashboardAtRisk,
+  DashboardDailyTotals,
 } from '@/lib/dashboard/load-home-data'
 
 const EMPTY_METRICS: DashboardMetrics = {
@@ -75,6 +59,14 @@ const METRICS: DashboardMetrics = {
   totalItems: 12,
 }
 
+const AT_RISK: DashboardAtRisk = { itemsLeft: 24, moneyTiedUp: 180 }
+
+const DAILY: DashboardDailyTotals = {
+  madeToday: 40,
+  soldUnitsToday: 15,
+  lostUnitsLifetime: 6,
+}
+
 const SPEND: DashboardSpendRow[] = [
   { item_name: 'Flour', total_spend: 120 },
   { item_name: 'Sugar', total_spend: 45 },
@@ -86,20 +78,21 @@ const ALERTS: DashboardAlertItem[] = [
 ]
 
 function renderHome(overrides?: Partial<{
-  metrics: DashboardMetrics
+  todayMetrics: DashboardMetrics
   metricsLifetime: DashboardMetrics
-  initialSalesPeriod: DashboardSalesPeriod
+  atRisk: DashboardAtRisk
+  dailyTotals: DashboardDailyTotals
   monthlySpend: DashboardSpendRow[]
   alerts: DashboardAlertItem[]
   loadError: string | null
   userName: string
 }>) {
-  const metrics = overrides?.metrics ?? METRICS
   return render(
     <DashboardHomeClient
-      metrics={metrics}
-      metricsLifetime={overrides?.metricsLifetime ?? metrics}
-      initialSalesPeriod={overrides?.initialSalesPeriod ?? 'month'}
+      todayMetrics={overrides?.todayMetrics ?? METRICS}
+      metricsLifetime={overrides?.metricsLifetime ?? METRICS}
+      atRisk={overrides?.atRisk ?? AT_RISK}
+      dailyTotals={overrides?.dailyTotals ?? DAILY}
       monthlySpend={overrides?.monthlySpend ?? []}
       alerts={overrides?.alerts ?? []}
       loadError={overrides?.loadError ?? null}
@@ -117,8 +110,14 @@ beforeEach(() => {
 
 describe('DashboardHomeClient', () => {
   it('renders the greeting with userName', () => {
-    renderHome({ userName: 'abbey' })
-    expect(screen.getByText('Hi, abbey!')).toBeTruthy()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-06-15T08:00:00.000Z'))
+    try {
+      renderHome({ userName: 'abbey' })
+      expect(screen.getByRole('heading', { level: 1, name: 'Good morning, abbey' })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('renders businessName in subtitle', () => {
@@ -126,24 +125,37 @@ describe('DashboardHomeClient', () => {
     expect(screen.getByText(/Test Bakery/)).toBeTruthy()
   })
 
-  it('shows profit block with formatted values', () => {
+  it('shows today profit headline when there have been sales', () => {
     renderHome()
-    expect(screen.getByText(/750/)).toBeTruthy()
-    expect(screen.getByText(/1,200/)).toBeTruthy()
-    expect(screen.getByText(/450/)).toBeTruthy()
-    expect(screen.getByText('3')).toBeTruthy()
-    expect(screen.getByText('12')).toBeTruthy()
+    expect(screen.getByText(/You made \$750\.00 today/i)).toBeTruthy()
   })
 
-  it('shows sales count for selected period', () => {
+  it('shows at-risk section when items are left', () => {
     renderHome()
-    expect(screen.getByText(/8 sales/)).toBeTruthy()
+    expect(screen.getByText(/What is still waiting to sell/)).toBeTruthy()
+    expect(screen.getByText(/24/)).toBeTruthy()
+    expect(screen.getByText(/If they do not sell, you lose this money/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: /sell now/i })).toHaveAttribute('href', '/dashboard/sales')
   })
 
-  it('shows empty profit hero when there has never been a sale', () => {
-    renderHome({ metrics: EMPTY_METRICS, metricsLifetime: EMPTY_METRICS })
-    expect(screen.getByText(/Your profit will show here/)).toBeTruthy()
-    expect(screen.queryByTestId('bar-chart')).toBeNull()
+  it('shows quick action buttons', () => {
+    renderHome()
+    expect(screen.getByRole('link', { name: /record production/i })).toBeTruthy()
+    expect(screen.getByRole('link', { name: /^sell items$/i })).toBeTruthy()
+    expect(screen.getByRole('link', { name: /^add stock$/i })).toBeTruthy()
+  })
+
+  it('shows daily summary numbers', () => {
+    renderHome()
+    expect(screen.getByText('Made today')).toBeTruthy()
+    expect(screen.getByText('Sold today')).toBeTruthy()
+    expect(screen.getByText('40')).toBeTruthy()
+    expect(screen.getByText('15')).toBeTruthy()
+  })
+
+  it('shows empty hero when there has never been a sale', () => {
+    renderHome({ metricsLifetime: EMPTY_METRICS, todayMetrics: EMPTY_METRICS })
+    expect(screen.getByText(/Log a first sale/)).toBeTruthy()
   })
 
   it('renders GettingStartedHelper', () => {
@@ -169,7 +181,7 @@ describe('DashboardHomeClient', () => {
     mockBizContext.loading = true
     mockBizContext.businessId = ''
     renderHome()
-    expect(screen.getByText('Loading dashboard...')).toBeTruthy()
+    expect(screen.getByText('Loading…')).toBeTruthy()
   })
 
   it('shows error state with retry button when bizError is set', async () => {
@@ -189,40 +201,34 @@ describe('DashboardHomeClient', () => {
     expect(mockRefresh).toHaveBeenCalled()
   })
 
-  it('shows stock alerts section when alerts exist', () => {
+  it('shows running low section when alerts exist', () => {
     renderHome({ alerts: ALERTS })
-    expect(screen.getByText('Stock alerts')).toBeTruthy()
+    expect(screen.getByText('Running low')).toBeTruthy()
     expect(screen.getByText('Flour')).toBeTruthy()
     expect(screen.getByText('Butter')).toBeTruthy()
-    expect(screen.getByText(/Out of stock/)).toBeTruthy()
   })
 
-  it('does NOT show stock alerts section when alerts are empty', () => {
+  it('does NOT show running low when alerts are empty', () => {
     renderHome({ alerts: [] })
-    expect(screen.queryByText('Stock alerts')).toBeNull()
+    expect(screen.queryByText('Running low')).toBeNull()
   })
 
-  it('shows monthly spend table when spend data exists', () => {
+  it('shows monthly spend inside details when spend data exists', () => {
     renderHome({ monthlySpend: SPEND })
-    expect(screen.getByText('This month: what you spent on each item')).toBeTruthy()
+    expect(screen.getByText(/More details — what you spent this month/)).toBeTruthy()
     expect(screen.getByText('Flour')).toBeTruthy()
     expect(screen.getByText('Sugar')).toBeTruthy()
   })
 
-  it('does NOT show monthly spend table when empty', () => {
+  it('does NOT show monthly spend details when empty', () => {
     renderHome({ monthlySpend: [] })
-    expect(screen.queryByText('This month: what you spent on each item')).toBeNull()
+    expect(screen.queryByText(/More details — what you spent this month/)).toBeNull()
   })
 
-  it('renders nav links to Stock, Production, Sales', () => {
-    renderHome()
-    expect(screen.getByText('Stock')).toBeTruthy()
-    expect(screen.getByText('Production')).toBeTruthy()
-    expect(screen.getByText('Sales')).toBeTruthy()
-  })
-
-  it('renders the money snapshot bar chart', () => {
-    renderHome()
-    expect(screen.getByTestId('bar-chart')).toBeTruthy()
+  it('shows loss headline when today profit is negative', () => {
+    renderHome({
+      todayMetrics: { ...METRICS, grossProfit: -120, totalSales: 3, totalRevenue: 50, totalCogs: 170 },
+    })
+    expect(screen.getByText(/You lost \$120\.00 today/i)).toBeTruthy()
   })
 })

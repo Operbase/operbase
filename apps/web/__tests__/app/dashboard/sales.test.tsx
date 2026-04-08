@@ -8,6 +8,38 @@ vi.mock('@/lib/supabase/client', () => ({
   createClient: () => mockSupabaseClient,
 }))
 
+// cmdk uses scrollIntoView + ResizeObserver APIs absent in JSDOM — provide a
+// minimal React-component stub so shadcn's Command wrapper can render without hanging.
+vi.mock('cmdk', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react')
+  function Command({ children, ...props }: any) {
+    return React.createElement('div', props, children)
+  }
+  Command.Input = function CmdInput({ onValueChange, ...props }: any) {
+    return React.createElement('input', {
+      onChange: (e: any) => onValueChange?.(e.target.value),
+      ...props,
+    })
+  }
+  Command.List = function CmdList({ children, ...props }: any) {
+    return React.createElement('div', props, children)
+  }
+  Command.Empty = function CmdEmpty({ children, ...props }: any) {
+    return React.createElement('div', props, children)
+  }
+  Command.Group = function CmdGroup({ children, heading: _h, ...props }: any) {
+    return React.createElement('div', props, children)
+  }
+  Command.Item = function CmdItem({ onSelect, value: _v, children, ...props }: any) {
+    return React.createElement('div', { ...props, role: 'option', onClick: () => onSelect?.() }, children)
+  }
+  Command.Separator = function CmdSep({ ...props }: any) {
+    return React.createElement('hr', props)
+  }
+  return { Command }
+})
+
 vi.mock('@/providers/business-provider', () => ({
   useBusinessContext: () => ({
     businessId: 'biz-123',
@@ -15,18 +47,14 @@ vi.mock('@/providers/business-provider', () => ({
     brandColor: '#d97706',
     logoUrl: null,
     currency: 'USD',
+    timezone: 'Africa/Lagos',
     loading: false,
     error: null,
     refetch: vi.fn(),
   }),
 }))
 
-// Recharts renders SVG; suppress resize observer errors in jsdom
-global.ResizeObserver = class ResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
+// next/navigation is mocked globally in vitest.setup.ts (useSearchParams + useRouter)
 
 import type { SalesRow } from '@/lib/dashboard/sales-data'
 import { SalesPageClient } from '@/app/dashboard/sales/sales-page-client'
@@ -37,6 +65,7 @@ import { SalesPageClient } from '@/app/dashboard/sales/sales-page-client'
 const MOCK_SALES = [
   {
     id: 'sale-1',
+    product_name: 'Sourdough loaf',
     units_sold: 10,
     unit_price: 5.0,
     revenue: 50.0,
@@ -48,6 +77,7 @@ const MOCK_SALES = [
   },
   {
     id: 'sale-2',
+    product_name: 'Danish',
     units_sold: 5,
     unit_price: 8.0,
     revenue: 40.0,
@@ -64,7 +94,8 @@ function toInitialSales(): SalesRow[] {
     id: s.id,
     customer_name: (s.customers as { name?: string } | null)?.name ?? 'Walk-in',
     product_id: 'prod-sourdough',
-    product_name: 'Sourdough',
+    product_name: s.product_name,
+    batch_id: s.batch_id,
     units_sold: s.units_sold,
     unit_price: s.unit_price,
     revenue: s.revenue,
@@ -78,10 +109,23 @@ function renderSales() {
   return render(<SalesPageClient initialSales={toInitialSales()} />)
 }
 
+const MOCK_PRODUCTS = [
+  { id: 'prod-bagel', name: 'Bagels' },
+  { id: 'prod-danish', name: 'Danish' },
+  { id: 'prod-muffin', name: 'Muffins' },
+  { id: 'prod-cake', name: 'Custom cake' },
+]
+
 function setupMocks() {
   mockSupabaseClient.rpc.mockImplementation((name: string) => {
     if (name === 'ensure_product') {
       return Promise.resolve({ data: 'prod-test', error: null })
+    }
+    if (name === 'record_sale_with_batch') {
+      return Promise.resolve({ data: 'sale-new', error: null })
+    }
+    if (name === 'delete_sale_restores_batch') {
+      return Promise.resolve({ data: null, error: null })
     }
     return Promise.resolve({ data: null, error: null })
   })
@@ -97,8 +141,13 @@ function setupMocks() {
         delete: vi.fn().mockReturnThis(),
       }
     }
+    if (table === 'products') {
+      return createQueryBuilder({ data: MOCK_PRODUCTS })
+    }
     if (table === 'batches') {
-      // No batches → computeAutoCogs returns null → cogs: null on sale insert
+      return createQueryBuilder({ data: [] })
+    }
+    if (table === 'batch_items') {
       return createQueryBuilder({ data: [] })
     }
     if (table === 'customers') {
@@ -132,10 +181,16 @@ describe('SalesPage', () => {
   })
 
   it('displays sales from Supabase', async () => {
+    const user = userEvent.setup()
     renderSales()
+    // Product name is in its own element; customer is appended to the date string
     await waitFor(() => {
-      expect(screen.getByText("John's Cafe")).toBeInTheDocument()
-      expect(screen.getByText('Walk-in')).toBeInTheDocument()
+      expect(screen.getByText('Sourdough loaf')).toBeInTheDocument()
+    })
+    // Expand second sale (Danish / Walk-in) to see customer in details row
+    await user.click(screen.getAllByRole('button', { name: /show sale details/i })[1])
+    await waitFor(() => {
+      expect(screen.queryAllByText(/Walk-in/).length).toBeGreaterThan(0)
     })
   })
 
@@ -168,10 +223,11 @@ describe('SalesPage', () => {
     await user.click(screen.getByRole('button', { name: /log sale/i }))
     const dialog = await screen.findByRole('dialog')
 
-    await user.type(within(dialog).getByLabelText(/what did you sell/i), 'Bagels')
+    await user.click(within(dialog).getByRole('combobox'))
+    await user.click(await screen.findByText(/^Bagels$/))
     await user.click(within(dialog).getByRole('button', { name: /^save sale$/i }))
 
-    expect(toast.error).toHaveBeenCalledWith('Please enter valid units and price')
+    expect(toast.error).toHaveBeenCalledWith('Enter how many you sold and the price for each one.')
   })
 
   it('shows running total when units and price are entered', async () => {
@@ -181,7 +237,8 @@ describe('SalesPage', () => {
     await user.click(screen.getByRole('button', { name: /log sale/i }))
     const dialog = await screen.findByRole('dialog')
 
-    await user.type(within(dialog).getByLabelText(/what did you sell/i), 'Muffins')
+    await user.click(within(dialog).getByRole('combobox'))
+    await user.click(await screen.findByText(/^Muffins$/))
     await user.type(within(dialog).getByLabelText(/^how many/i), '5')
     await user.type(within(dialog).getByLabelText(/^price each/i), '10')
     await waitFor(() => {
@@ -191,11 +248,14 @@ describe('SalesPage', () => {
 
   it('creates a sale with valid input and no customer name (walk-in)', async () => {
     const user = userEvent.setup()
-    const insertMock = vi.fn().mockResolvedValue({ error: null })
+    const recordRpc = vi.fn().mockResolvedValue({ data: 'sale-new', error: null })
 
-    mockSupabaseClient.rpc.mockImplementation((name: string) => {
+    mockSupabaseClient.rpc.mockImplementation((name: string, args?: Record<string, unknown>) => {
       if (name === 'ensure_product') {
         return Promise.resolve({ data: 'prod-danish', error: null })
+      }
+      if (name === 'record_sale_with_batch') {
+        return recordRpc(args)
       }
       return Promise.resolve({ data: null, error: null })
     })
@@ -206,8 +266,10 @@ describe('SalesPage', () => {
           select: vi.fn().mockReturnThis(),
           eq: vi.fn().mockReturnThis(),
           order: vi.fn().mockResolvedValue({ data: [], error: null }),
-          insert: insertMock,
         }
+      }
+      if (table === 'products') {
+        return createQueryBuilder({ data: MOCK_PRODUCTS })
       }
       if (table === 'batches') {
         return createQueryBuilder({ data: [] })
@@ -221,35 +283,38 @@ describe('SalesPage', () => {
     await waitFor(() => screen.getByRole('dialog'))
 
     const dlg = await screen.findByRole('dialog')
-    await user.type(within(dlg).getByLabelText(/what did you sell/i), 'Danish')
+    await user.click(within(dlg).getByRole('combobox'))
+    // Use role='option' to target the picker item, not the Danish sale row in the table
+    await user.click(await screen.findByRole('option', { name: /^Danish$/ }))
     await user.type(within(dlg).getByLabelText(/^how many/i), '10')
     await user.type(within(dlg).getByLabelText(/^price each/i), '5')
     await user.click(within(dlg).getByRole('button', { name: /^save sale$/i }))
 
     await waitFor(() => {
-      expect(insertMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          business_id: 'biz-123',
-          customer_id: null,
-          cogs: null, // no batches for prod-danish in this test
-          product_id: 'prod-danish',
-          product_name: 'Danish',
-          units_sold: 10,
-          unit_price: 5,
-        })
-      )
+      expect(recordRpc).toHaveBeenCalled()
+      const args = recordRpc.mock.calls[0][0] as Record<string, unknown>
+      expect(args.p_business_id).toBe('biz-123')
+      expect(args.p_product_id).toBe('prod-danish')
+      expect(args.p_product_name).toBe('Danish')
+      expect(args.p_units_sold).toBe(10)
+      expect(args.p_unit_price).toBe(5)
+      expect(args.p_batch_id).toBeNull()
+      expect(args.p_cogs_if_no_batch).toBeNull()
       expect(toast.success).toHaveBeenCalledWith('Sale recorded!')
     })
   })
 
   it('computes COGS from batches for the same product only', async () => {
     const user = userEvent.setup()
-    const insertMock = vi.fn().mockResolvedValue({ error: null })
+    const recordRpc = vi.fn().mockResolvedValue({ data: 'sale-muffin', error: null })
     const batchesEqSpy = vi.fn()
 
-    mockSupabaseClient.rpc.mockImplementation((name: string) => {
+    mockSupabaseClient.rpc.mockImplementation((name: string, args?: Record<string, unknown>) => {
       if (name === 'ensure_product') {
         return Promise.resolve({ data: 'prod-muffin', error: null })
+      }
+      if (name === 'record_sale_with_batch') {
+        return recordRpc(args)
       }
       return Promise.resolve({ data: null, error: null })
     })
@@ -260,8 +325,10 @@ describe('SalesPage', () => {
           select: vi.fn().mockReturnThis(),
           eq: vi.fn().mockReturnThis(),
           order: vi.fn().mockResolvedValue({ data: [], error: null }),
-          insert: insertMock,
         }
+      }
+      if (table === 'products') {
+        return createQueryBuilder({ data: MOCK_PRODUCTS })
       }
       if (table === 'batches') {
         const b = createQueryBuilder({
@@ -280,21 +347,17 @@ describe('SalesPage', () => {
 
     await user.click(screen.getByRole('button', { name: /log sale/i }))
     const dlg = await screen.findByRole('dialog')
-    await user.type(within(dlg).getByLabelText(/what did you sell/i), 'Muffins')
+    await user.click(within(dlg).getByRole('combobox'))
+    await user.click(await screen.findByText(/^Muffins$/))
     await user.type(within(dlg).getByLabelText(/^how many/i), '5')
     await user.type(within(dlg).getByLabelText(/^price each/i), '4')
     await user.click(within(dlg).getByRole('button', { name: /^save sale$/i }))
 
     await waitFor(() => {
       expect(batchesEqSpy).toHaveBeenCalledWith('product_id', 'prod-muffin')
-      expect(insertMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          product_id: 'prod-muffin',
-          product_name: 'Muffins',
-          cogs: 50,
-          units_sold: 5,
-        })
-      )
+      const args = recordRpc.mock.calls[0][0] as Record<string, unknown>
+      expect(args.p_cogs_if_no_batch).toBe(50)
+      expect(args.p_product_id).toBe('prod-muffin')
     })
   })
 
@@ -303,11 +366,14 @@ describe('SalesPage', () => {
 
     const customerInsertMock = vi.fn().mockReturnThis()
     const customerSingleMock = vi.fn().mockResolvedValue({ data: { id: 'cust-new' }, error: null })
-    const saleInsertMock = vi.fn().mockResolvedValue({ error: null })
+    const recordRpc = vi.fn().mockResolvedValue({ data: 'sale-cake', error: null })
 
-    mockSupabaseClient.rpc.mockImplementation((name: string) => {
+    mockSupabaseClient.rpc.mockImplementation((name: string, args?: Record<string, unknown>) => {
       if (name === 'ensure_product') {
         return Promise.resolve({ data: 'prod-cake', error: null })
+      }
+      if (name === 'record_sale_with_batch') {
+        return recordRpc(args)
       }
       return Promise.resolve({ data: null, error: null })
     })
@@ -328,8 +394,10 @@ describe('SalesPage', () => {
           select: vi.fn().mockReturnThis(),
           eq: vi.fn().mockReturnThis(),
           order: vi.fn().mockResolvedValue({ data: [], error: null }),
-          insert: saleInsertMock,
         }
+      }
+      if (table === 'products') {
+        return createQueryBuilder({ data: MOCK_PRODUCTS })
       }
       if (table === 'batches') {
         return createQueryBuilder({ data: [] })
@@ -343,7 +411,8 @@ describe('SalesPage', () => {
     await waitFor(() => screen.getByRole('dialog'))
 
     const dlg = await screen.findByRole('dialog')
-    await user.type(within(dlg).getByLabelText(/what did you sell/i), 'Custom cake')
+    await user.click(within(dlg).getByRole('combobox'))
+    await user.click(await screen.findByText(/^Custom cake$/))
     await user.click(within(dlg).getByText(/customer \(optional\)/i))
     await user.type(within(dlg).getByPlaceholderText(/leave blank for walk-in/i), 'New Customer')
     await user.type(within(dlg).getByLabelText(/^how many/i), '3')
@@ -352,9 +421,8 @@ describe('SalesPage', () => {
 
     await waitFor(() => {
       expect(customerInsertMock).toHaveBeenCalled()
-      expect(saleInsertMock).toHaveBeenCalledWith(
-        expect.objectContaining({ customer_id: 'cust-new' })
-      )
+      const args = recordRpc.mock.calls[0][0] as Record<string, unknown>
+      expect(args.p_customer_id).toBe('cust-new')
     })
   })
 
@@ -363,10 +431,9 @@ describe('SalesPage', () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
 
     renderSales()
-    await waitFor(() => screen.getByText("John's Cafe"))
+    await waitFor(() => screen.getByText('Sourdough loaf'))
 
-    const deleteButtons = screen.getAllByRole('button', { name: '' })
-    await user.click(deleteButtons[0])
+    await user.click(screen.getByRole('button', { name: /delete sale sourdough loaf/i }))
 
     expect(confirmSpy).toHaveBeenCalledWith('Delete this sale?')
     confirmSpy.mockRestore()

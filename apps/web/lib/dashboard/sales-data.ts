@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { resolveBusinessTimeZone, salesSinceForDashboardPeriod } from '@/lib/business-time'
 
 const PAGE_SIZE = 50
 
@@ -7,6 +8,7 @@ export type SalesRow = {
   customer_name: string
   product_id: string | null
   product_name: string | null
+  batch_id: string | null
   units_sold: number
   unit_price: number
   revenue: number
@@ -18,21 +20,23 @@ export type SalesRow = {
 export async function loadSalesInitial(
   supabase: SupabaseClient,
   businessId: string,
+  timeZone: string,
   dateRange: 'all' | 'week' | 'month' = 'month'
 ): Promise<{ sales: SalesRow[] }> {
+  const tz = resolveBusinessTimeZone(timeZone)
   let salesQuery = supabase
     .from('sales')
     .select(
-      'id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, product_id, product_name, customers(name)'
+      'id, batch_id, units_sold, unit_price, revenue, cogs, gross_profit, sold_at, product_id, product_name, customers(name)'
     )
     .eq('business_id', businessId)
 
   if (dateRange !== 'all') {
-    const now = new Date()
-    const start = new Date(now)
-    if (dateRange === 'week') start.setDate(now.getDate() - 7)
-    else if (dateRange === 'month') start.setMonth(now.getMonth() - 1)
-    salesQuery = salesQuery.gte('sold_at', start.toISOString())
+    const period = dateRange === 'week' ? 'week' : 'month'
+    const start = salesSinceForDashboardPeriod(period, tz)
+    if (start) {
+      salesQuery = salesQuery.gte('sold_at', start.toISOString())
+    }
   }
 
   const { data } = await salesQuery
@@ -46,6 +50,7 @@ export async function loadSalesInitial(
       customer_name: c?.name ?? 'Walk-in',
       product_id: (s.product_id as string | null) ?? null,
       product_name: (s.product_name as string | null) ?? null,
+      batch_id: (s.batch_id as string | null) ?? null,
       units_sold: Number(s.units_sold),
       unit_price: Number(s.unit_price),
       revenue: Number(s.revenue),

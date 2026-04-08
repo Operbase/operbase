@@ -1,83 +1,53 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts'
 import { GettingStartedHelper } from '@/components/getting-started-helper'
-import { AlertCircle, TrendingUp, Package, ChefHat, ShoppingBag, ChevronRight } from 'lucide-react'
+import { AlertCircle, ChefHat, Package, ShoppingBag } from 'lucide-react'
 import { useBusinessContext } from '@/providers/business-provider'
 import { formatCurrency } from '@/lib/format-currency'
 import { trackEvent } from '@/lib/services/events'
-import { createClient } from '@/lib/supabase/client'
-import { toast } from 'sonner'
-import {
-  dashboardMetricsFromRpc,
-  salesSinceForDashboardPeriod,
-  type DashboardAlertItem,
-  type DashboardMetrics,
-  type DashboardSalesPeriod,
-  type DashboardSpendRow,
+import { businessGreetingLabel } from '@/lib/business-time'
+import type {
+  DashboardAlertItem,
+  DashboardAtRisk,
+  DashboardDailyTotals,
+  DashboardMetrics,
+  DashboardSpendRow,
 } from '@/lib/dashboard/load-home-data'
 
-const PERIOD_OPTIONS: { value: DashboardSalesPeriod; label: string }[] = [
-  { value: 'today', label: 'Today' },
-  { value: 'week', label: 'Last week' },
-  { value: 'month', label: 'Last month' },
-  { value: 'all', label: 'All time' },
-]
-
 export function DashboardHomeClient({
-  metrics: initialMetrics,
+  todayMetrics,
   metricsLifetime,
-  initialSalesPeriod,
+  atRisk,
+  dailyTotals,
   monthlySpend,
   alerts,
   loadError,
   userName,
 }: {
-  metrics: DashboardMetrics
+  todayMetrics: DashboardMetrics
   metricsLifetime: DashboardMetrics
-  initialSalesPeriod: DashboardSalesPeriod
+  atRisk: DashboardAtRisk
+  dailyTotals: DashboardDailyTotals
   monthlySpend: DashboardSpendRow[]
   alerts: DashboardAlertItem[]
   loadError: string | null
-  /** Greeting line — from server session (layout already shows full profile in sidebar). */
   userName: string
 }) {
   const router = useRouter()
-  const supabase = useMemo(() => createClient(), [])
-  const [salesPeriod, setSalesPeriod] = useState<DashboardSalesPeriod>(initialSalesPeriod)
-  const [periodMetrics, setPeriodMetrics] = useState<DashboardMetrics>(initialMetrics)
-  const [periodLoading, setPeriodLoading] = useState(false)
-
   const {
     businessId,
     businessName,
     currency,
-    brandColor,
+    timezone,
     loading: bizLoading,
     error: bizError,
     refetch: bizRefetch,
   } = useBusinessContext()
-
-  useEffect(() => {
-    setPeriodMetrics(initialMetrics)
-  }, [initialMetrics])
-
-  useEffect(() => {
-    setSalesPeriod(initialSalesPeriod)
-  }, [initialSalesPeriod])
 
   useEffect(() => {
     if (businessId) {
@@ -85,40 +55,32 @@ export function DashboardHomeClient({
     }
   }, [businessId])
 
-  const loadPeriodMetrics = useCallback(
-    async (p: DashboardSalesPeriod) => {
-      if (!businessId) return
-      setSalesPeriod(p)
-      setPeriodLoading(true)
-      try {
-        const since = salesSinceForDashboardPeriod(p)
-        const { data, error } = await supabase.rpc('dashboard_metrics', {
-          p_business_id: businessId,
-          p_sales_since: since?.toISOString() ?? null,
-        })
-        if (error) throw error
-        setPeriodMetrics(dashboardMetricsFromRpc(data))
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'Could not load metrics'
-        toast.error(msg)
-      } finally {
-        setPeriodLoading(false)
-      }
-    },
-    [businessId, supabase]
-  )
-
   const neverHadSale = metricsLifetime.totalSales === 0
-  const periodHasMoney =
-    periodMetrics.totalRevenue > 0 ||
-    periodMetrics.totalCogs > 0 ||
-    periodMetrics.grossProfit !== 0
+  const profitToday = todayMetrics.grossProfit
+  const hadSalesToday = todayMetrics.totalSales > 0
 
-  const chartData = [
-    { name: 'Money in', value: periodMetrics.totalRevenue },
-    { name: 'Costs', value: periodMetrics.totalCogs },
-    { name: 'Left over', value: Math.max(0, periodMetrics.grossProfit) },
-  ]
+  const headline = useMemo(() => {
+    if (neverHadSale) return null
+    if (!hadSalesToday && profitToday === 0) {
+      return {
+        kind: 'neutral' as const,
+        big: 'Nothing sold today yet',
+        sub: 'When you log sales, your result for the day shows up here.',
+      }
+    }
+    if (profitToday >= 0) {
+      return {
+        kind: 'good' as const,
+        big: `You made ${formatCurrency(profitToday, currency)} today`,
+        sub: 'After what those sales cost you to make.',
+      }
+    }
+    return {
+      kind: 'bad' as const,
+      big: `You lost ${formatCurrency(Math.abs(profitToday), currency)} today`,
+      sub: 'Sales today did not cover the cost we tracked — check prices or costs.',
+    }
+  }, [neverHadSale, hadSalesToday, profitToday, currency])
 
   if (bizError) {
     return (
@@ -134,13 +96,15 @@ export function DashboardHomeClient({
   if (bizLoading && !businessId) {
     return (
       <div className="flex items-center justify-center h-96">
-        <p className="text-gray-500">Loading dashboard...</p>
+        <p className="text-gray-500">Loading…</p>
       </div>
     )
   }
 
+  const showAtRisk = atRisk.itemsLeft > 0
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 max-w-3xl">
       {loadError ? (
         <div
           className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-3"
@@ -154,106 +118,167 @@ export function DashboardHomeClient({
       ) : null}
 
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Hi, {userName}!</h1>
-          <p className="text-gray-600 mt-1">
-            Quick look at <strong>{businessName ?? 'your business'}</strong> for today.
-          </p>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+          {businessGreetingLabel(timezone)}, {userName}
+        </h1>
+        <p className="text-gray-600 mt-1">
+          Here is <strong>{businessName ?? 'your shop'}</strong> at a glance.
+        </p>
       </div>
 
-      {/* Profit block — outcome first; time range applies to sales-derived figures */}
-      <div className="space-y-3">
-        <div className="flex flex-wrap gap-2 items-center">
-          <span className="text-xs font-medium text-gray-500 uppercase tracking-wide w-full sm:w-auto">
-            Sales period
-          </span>
-          <div className="flex flex-wrap gap-1">
-            {PERIOD_OPTIONS.map(({ value, label }) => (
-              <Button
-                key={value}
-                type="button"
-                size="sm"
-                variant={salesPeriod === value ? 'default' : 'outline'}
-                disabled={periodLoading}
-                className={
-                  salesPeriod === value ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''
-                }
-                onClick={() => void loadPeriodMetrics(value)}
-              >
-                {label}
+      {/* 1 — Today’s result */}
+      {neverHadSale ? (
+        <Card className="border-amber-200 bg-gradient-to-br from-amber-50/90 to-white shadow-sm">
+          <CardContent className="pt-8 pb-8 px-6 text-center space-y-4">
+            <p className="text-xl font-semibold text-gray-900">Log a first sale to see how you did</p>
+            <p className="text-sm text-gray-600 max-w-md mx-auto leading-relaxed">
+              Add what you buy, record what you make, then tap Sell items when money comes in.
+            </p>
+            <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-3 pt-2">
+              <Button asChild size="lg" className="min-h-12 text-base bg-amber-600 hover:bg-amber-700">
+                <Link href="/dashboard/sales">Sell items</Link>
               </Button>
-            ))}
-          </div>
-        </div>
-
-        {neverHadSale ? (
-          <Card className="border-amber-200 bg-gradient-to-br from-amber-50/80 to-white">
-            <CardContent className="pt-8 pb-8 px-6 text-center space-y-3">
-              <p className="text-lg font-semibold text-gray-900">Your profit will show here</p>
-              <p className="text-sm text-gray-600 max-w-md mx-auto leading-relaxed">
-                After your first sale you will see money in, costs, and what is left, like the preview on
-                our homepage. Add stock, log a batch, then head to Sales when you are ready.
+              <Button asChild size="lg" variant="outline" className="min-h-12 text-base">
+                <Link href="/dashboard/stock">Add stock</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : headline ? (
+        <section aria-label="Today's result">
+          <Card
+            className={
+              headline.kind === 'good'
+                ? 'border-2 border-green-300 bg-green-50/80 shadow-md'
+                : headline.kind === 'bad'
+                  ? 'border-2 border-red-300 bg-red-50/80 shadow-md'
+                  : 'border border-gray-200 bg-gray-50/80 shadow-sm'
+            }
+          >
+            <CardContent className="pt-8 pb-8 px-6 sm:px-8">
+              <p
+                className={`text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight leading-tight ${
+                  headline.kind === 'good'
+                    ? 'text-green-800'
+                    : headline.kind === 'bad'
+                      ? 'text-red-800'
+                      : 'text-gray-800'
+                }`}
+              >
+                {headline.big}
               </p>
-              <div className="flex flex-wrap justify-center gap-2 pt-2">
-                <Button asChild size="sm" className="bg-amber-600 hover:bg-amber-700">
-                  <Link href="/dashboard/sales">Log a sale</Link>
+              <p className="text-base sm:text-lg text-gray-700 mt-3 max-w-xl">{headline.sub}</p>
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
+
+      {/* 2 — At risk */}
+      {!neverHadSale && showAtRisk ? (
+        <section aria-label="What is at risk">
+          <Card className="border-2 border-amber-300 bg-amber-50/90 shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg text-amber-950">What is still waiting to sell</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-lg text-gray-900">
+                You still have{' '}
+                <strong className="tabular-nums text-amber-950">{atRisk.itemsLeft}</strong> items on hand.
+              </p>
+              <p className="text-2xl font-bold tabular-nums text-gray-900">
+                {formatCurrency(atRisk.moneyTiedUp, currency)} is still tied up in those items.
+              </p>
+              <p className="text-sm font-medium text-amber-900 bg-amber-100/80 rounded-lg px-3 py-2 border border-amber-200">
+                If they do not sell, you lose this money.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                <Button
+                  asChild
+                  size="lg"
+                  className="min-h-12 text-base flex-1 bg-green-600 hover:bg-green-700"
+                >
+                  <Link href="/dashboard/sales">Sell now</Link>
                 </Button>
-                <Button asChild size="sm" variant="outline">
-                  <Link href="/dashboard/stock">Add stock</Link>
+                <Button asChild size="lg" variant="outline" className="min-h-12 text-base flex-1 bg-white">
+                  <Link href="/dashboard/production#production-batches">What happened to the rest?</Link>
                 </Button>
               </div>
             </CardContent>
           </Card>
-        ) : (
-          <>
-            <Card className="border-amber-200 bg-amber-50/50 shadow-sm">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base font-medium text-amber-900">After costs</CardTitle>
-                <p className="text-xs text-amber-800/80 font-normal">
-                  Profit from sales in the period you picked (from what you logged in Sales).
-                </p>
+        </section>
+      ) : !neverHadSale ? (
+        <Card className="border-green-200 bg-green-50/40">
+          <CardContent className="py-5 px-5">
+            <p className="font-medium text-green-900">Nothing left waiting — you cleared the shelf.</p>
+            <p className="text-sm text-green-800/90 mt-1">Great time to record another batch when you bake.</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* 3 — Quick actions */}
+      <section aria-label="Quick actions">
+        <p className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-3">Do this next</p>
+        <div className="flex flex-col gap-3">
+          <Button
+            asChild
+            size="lg"
+            className="w-full min-h-14 text-lg justify-center bg-amber-600 hover:bg-amber-700"
+          >
+            <Link href="/dashboard/production">Record production</Link>
+          </Button>
+          <Button asChild size="lg" variant="default" className="w-full min-h-14 text-lg justify-center bg-green-600 hover:bg-green-700">
+            <Link href="/dashboard/sales">Sell items</Link>
+          </Button>
+          <Button asChild size="lg" variant="outline" className="w-full min-h-14 text-lg justify-center border-2">
+            <Link href="/dashboard/stock">Add stock</Link>
+          </Button>
+        </div>
+      </section>
+
+      {/* 4 — Simple summary */}
+      {!neverHadSale ? (
+        <section aria-label="Today summary">
+          <p className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-3">Today in numbers</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Card>
+              <CardHeader className="pb-1">
+                <CardTitle className="text-sm font-medium text-gray-600">Made today</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl sm:text-4xl font-bold text-amber-900">
-                  {periodLoading ? '…' : formatCurrency(periodMetrics.grossProfit, currency)}
-                </div>
-                <p className="text-sm text-gray-600 mt-2">
-                  {periodLoading ? ' ' : `${periodMetrics.totalSales} sales`} in this period
-                </p>
+                <p className="text-3xl font-bold tabular-nums">{dailyTotals.madeToday}</p>
+                <p className="text-xs text-gray-500 mt-1">Items you finished</p>
               </CardContent>
             </Card>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-600">Money in</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-green-600">
-                    {periodLoading ? '…' : formatCurrency(periodMetrics.totalRevenue, currency)}
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-600">Costs (tracked)</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-orange-700">
-                    {periodLoading ? '…' : formatCurrency(periodMetrics.totalCogs, currency)}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </>
-        )}
-      </div>
+            <Card>
+              <CardHeader className="pb-1">
+                <CardTitle className="text-sm font-medium text-gray-600">Sold today</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-bold tabular-nums text-green-700">{dailyTotals.soldUnitsToday}</p>
+                <p className="text-xs text-gray-500 mt-1">Items you rang up</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-1">
+                <CardTitle className="text-sm font-medium text-gray-600">Lost (so far)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-bold tabular-nums text-gray-600">
+                  {dailyTotals.lostUnitsLifetime}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">Given away or did not sell, all time</p>
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+      ) : null}
 
       {alerts.length > 0 && (
         <Card className="border-orange-200 bg-orange-50/50">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-orange-900">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-orange-950 text-base">
               <AlertCircle size={20} />
-              Stock alerts
+              Running low
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -265,144 +290,68 @@ export function DashboardHomeClient({
                 >
                   <span className="font-medium text-gray-900">{a.name}</span>
                   <span className="text-gray-600 text-right">
-                    {a.quantity_on_hand.toFixed(2)} {a.usage_unit_name} ({a.reason})
+                    {a.quantity_on_hand.toFixed(2)} {a.usage_unit_name}
                   </span>
                 </li>
               ))}
             </ul>
+            <Button asChild variant="outline" size="sm" className="mt-4">
+              <Link href="/dashboard/stock">Add stock</Link>
+            </Button>
           </CardContent>
         </Card>
       )}
 
       <GettingStartedHelper />
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Link href="/dashboard/stock">
-          <Card className="h-full transition-shadow hover:shadow-md border-2 border-transparent hover:border-amber-200 cursor-pointer">
-            <CardContent className="p-5 flex items-center gap-4">
-              <div className="rounded-full bg-amber-100 p-3">
-                <Package className="text-amber-800" size={28} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-lg text-gray-900">Stock</p>
-                <p className="text-sm text-gray-600">Add flour, sugar, bags…</p>
-              </div>
-              <ChevronRight className="text-gray-400 shrink-0" />
-            </CardContent>
-          </Card>
+      {monthlySpend.length > 0 && (
+        <details className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm">
+          <summary className="cursor-pointer font-medium text-gray-900">More details — what you spent this month</summary>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 border-b">
+                  <th className="pb-2 pr-4">Item</th>
+                  <th className="pb-2">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlySpend.map((row) => (
+                  <tr key={row.item_name} className="border-b border-gray-100">
+                    <td className="py-2 pr-4 font-medium">{row.item_name}</td>
+                    <td className="py-2">{formatCurrency(row.total_spend, currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+
+      {/* Compact links — icons optional for scan */}
+      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100">
+        <Link
+          href="/dashboard/stock"
+          className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 text-center"
+        >
+          <Package className="text-amber-700" size={22} />
+          <span className="text-xs font-medium text-gray-700">Stock</span>
         </Link>
-        <Link href="/dashboard/production">
-          <Card className="h-full transition-shadow hover:shadow-md border-2 border-transparent hover:border-amber-200 cursor-pointer">
-            <CardContent className="p-5 flex items-center gap-4">
-              <div className="rounded-full bg-amber-100 p-3">
-                <ChefHat className="text-amber-800" size={28} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-lg text-gray-900">Production</p>
-                <p className="text-sm text-gray-600">Record what you made</p>
-              </div>
-              <ChevronRight className="text-gray-400 shrink-0" />
-            </CardContent>
-          </Card>
+        <Link
+          href="/dashboard/production"
+          className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 text-center"
+        >
+          <ChefHat className="text-amber-700" size={22} />
+          <span className="text-xs font-medium text-gray-700">Make</span>
         </Link>
-        <Link href="/dashboard/sales">
-          <Card className="h-full transition-shadow hover:shadow-md border-2 border-transparent hover:border-amber-200 cursor-pointer">
-            <CardContent className="p-5 flex items-center gap-4">
-              <div className="rounded-full bg-amber-100 p-3">
-                <ShoppingBag className="text-amber-800" size={28} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-lg text-gray-900">Sales</p>
-                <p className="text-sm text-gray-600">Record a sale</p>
-              </div>
-              <ChevronRight className="text-gray-400 shrink-0" />
-            </CardContent>
-          </Card>
+        <Link
+          href="/dashboard/sales"
+          className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 text-center"
+        >
+          <ShoppingBag className="text-amber-700" size={22} />
+          <span className="text-xs font-medium text-gray-700">Sell</span>
         </Link>
       </div>
-
-      {!neverHadSale && (
-        <div className="grid grid-cols-2 gap-3 max-w-lg">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-gray-500">Batches (all time)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-xl font-bold">{periodMetrics.totalBatches}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-gray-500">Stock items</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-xl font-bold">{periodMetrics.totalItems}</div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {monthlySpend.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>This month: what you spent on each item</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-gray-500 border-b">
-                    <th className="pb-2 pr-4">Item</th>
-                    <th className="pb-2">Spend</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {monthlySpend.map((row) => (
-                    <tr key={row.item_name} className="border-b border-gray-100">
-                      <td className="py-2 pr-4 font-medium">{row.item_name}</td>
-                      <td className="py-2">{formatCurrency(row.total_spend, currency)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-xs text-gray-500 mt-3">
-              Based on restock entries (purchase / manual) this calendar month (UTC).
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TrendingUp size={20} className="text-amber-600" />
-            Money snapshot
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {neverHadSale ? (
-            <p className="text-sm text-gray-600 py-10 text-center max-w-md mx-auto leading-relaxed">
-              Once you have a week of sales, your trend shows up here. Until then we skip the empty chart
-              and show this note instead.
-            </p>
-          ) : !periodHasMoney ? (
-            <p className="text-sm text-gray-600 py-10 text-center max-w-md mx-auto leading-relaxed">
-              Nothing in this period yet. Try a wider range above, or record a sale in Sales.
-            </p>
-          ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis />
-                <Tooltip formatter={(v: number) => formatCurrency(v, currency)} />
-                <Bar dataKey="value" fill={brandColor} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
     </div>
   )
 }

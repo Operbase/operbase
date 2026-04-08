@@ -15,6 +15,7 @@ vi.mock('@/providers/business-provider', () => ({
     brandColor: '#d97706',
     logoUrl: null,
     currency: 'USD',
+    timezone: 'Africa/Lagos',
     loading: false,
     error: null,
     refetch: vi.fn(),
@@ -149,7 +150,7 @@ describe('StockPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /^stock$/i })).toBeInTheDocument()
       expect(
-        screen.getByText(/Add stock when you shop/i)
+        screen.getByText(/bags of flour|say out loud/i)
       ).toBeInTheDocument()
     })
   })
@@ -242,7 +243,7 @@ describe('StockPage', () => {
     await user.click(screen.getByRole('button', { name: /other item/i }))
     const dialog = await screen.findByRole('dialog')
 
-    await user.type(within(dialog).getByPlaceholderText(/what do you call it/i), 'Butter')
+    await user.type(within(dialog).getByLabelText(/what is it/i), 'Butter')
     await user.type(within(dialog).getByLabelText(/what you pay for one purchase/i), '3')
     await user.click(within(dialog).getByRole('button', { name: /^save$/i }))
 

@@ -410,13 +410,29 @@ export function StockPageClient({
   const lowStockCount = displayItems.filter(isLowStock).length
   const purchaseIsCup = restockItem?.purchase_unit_name?.toLowerCase() === 'cup'
 
+  const recipeUnitLabel =
+    units.find((u) => u.id === form.usageUnitId)?.name ?? 'recipe unit'
+
+  const restockLive = useMemo(() => {
+    if (!restockItem) return null
+    const pq = parseFloat(restockPurchaseQty)
+    const cp = parseFloat(restockCostPerPurchase)
+    const ratio = restockItem.conversion_ratio > 0 ? restockItem.conversion_ratio : 1
+    if (!pq || pq <= 0) return null
+    const priceOne = cp > 0 ? cp : restockItem.cost_per_unit
+    const totalSpend = priceOne * pq
+    const perRecipe = costPerUsageUnit(priceOne, ratio)
+    const usageAdded = usageQuantityFromPurchaseQty(pq, ratio)
+    return { totalSpend, perRecipe, usageAdded }
+  }, [restockItem, restockPurchaseQty, restockCostPerPurchase])
+
   return (
     <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Stock</h1>
           <p className="text-gray-600 mt-1">
-            Add stock when you shop: ingredients and packaging. You buy in bags, crates, or buckets; we track
-            what you use in cups, grams, or pieces. Costs update automatically.
+            When you buy something, add it here in the words you’d say out loud (“2 bags of flour”). We show
+            what each cup, gram, or piece costs you so recipes stay honest.
           </p>
         </div>
 
@@ -434,12 +450,12 @@ export function StockPageClient({
               </DialogHeader>
               <form noValidate onSubmit={handleSave} className="space-y-4">
                 <div>
-                  <Label htmlFor="name">Name</Label>
+                  <Label htmlFor="name">What is it?</Label>
                   <Input
                     id="name"
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="What do you call it?"
+                    placeholder="e.g. Bread flour, large eggs, takeaway boxes"
                     className="min-h-11 text-base"
                   />
                 </div>
@@ -484,7 +500,7 @@ export function StockPageClient({
 
                 <details className="text-sm border rounded-lg p-3 bg-gray-50">
                   <summary className="cursor-pointer font-medium text-gray-800 py-1">
-                    Advanced: buy unit vs recipe unit
+                    Buy in bags but measure in cups? Tap here
                   </summary>
                   <div className="space-y-3 pt-3 mt-2 border-t">
                     <div className="grid grid-cols-1 gap-3">
@@ -559,18 +575,26 @@ export function StockPageClient({
                 </details>
 
                 {form.costPerPurchase && form.conversionRatio && parseFloat(form.conversionRatio) > 0 && (
-                  <p className="text-sm text-gray-600 bg-amber-50 border border-amber-100 p-2 rounded">
-                    Per recipe unit:{' '}
-                    <strong>
-                      {formatCurrency(
-                        costPerUsageUnit(
-                          parseFloat(form.costPerPurchase) || 0,
-                          parseFloat(form.conversionRatio) || 1
-                        ),
-                        currency
-                      )}
-                    </strong>
-                  </p>
+                  <div className="text-sm bg-amber-50 border border-amber-100 p-3 rounded-lg space-y-1">
+                    <p className="text-gray-800">
+                      <strong className="text-lg tabular-nums">
+                        {formatCurrency(
+                          costPerUsageUnit(
+                            parseFloat(form.costPerPurchase) || 0,
+                            parseFloat(form.conversionRatio) || 1
+                          ),
+                          currency
+                        )}
+                      </strong>
+                      <span className="text-gray-600 font-normal">
+                        {' '}
+                        per {recipeUnitLabel}
+                      </span>
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      That’s what we’ll use when you record production or check if a price makes sense.
+                    </p>
+                  </div>
                 )}
 
                 <Button type="submit" size="lg" className="w-full bg-amber-600 hover:bg-amber-700 min-h-12 text-base" disabled={isSubmitting}>
@@ -655,7 +679,8 @@ export function StockPageClient({
                         <TableRow>
                           <TableHead>Item</TableHead>
                           <TableHead>On hand</TableHead>
-                          <TableHead>Unit</TableHead>
+                          <TableHead>You count in</TableHead>
+                          <TableHead className="text-right tabular-nums">Cost per recipe unit</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -678,6 +703,12 @@ export function StockPageClient({
                                 {item.quantity_on_hand.toFixed(1)}
                               </TableCell>
                               <TableCell className="text-base">{item.usage_unit_name}</TableCell>
+                              <TableCell className="text-base text-right tabular-nums text-gray-700">
+                                {formatCurrency(
+                                  costPerUsageUnit(item.cost_per_unit, item.conversion_ratio),
+                                  currency
+                                )}
+                              </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex flex-wrap gap-2 justify-end">
                                   <Button
@@ -809,6 +840,28 @@ export function StockPageClient({
                   className="min-h-11 mt-1"
                 />
               </div>
+              {restockLive && restockItem ? (
+                <div className="rounded-lg border border-amber-100 bg-amber-50/70 p-3 text-sm space-y-2">
+                  <div className="flex justify-between gap-3 text-gray-800">
+                    <span>Total for this add</span>
+                    <strong className="tabular-nums">
+                      {formatCurrency(restockLive.totalSpend, currency)}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between gap-3 text-gray-700 text-xs">
+                    <span>
+                      Adds ~{restockLive.usageAdded.toFixed(1)} {restockItem.usage_unit_name} to stock
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-600 border-t border-amber-100 pt-2">
+                    After you save, each {restockItem.usage_unit_name} costs{' '}
+                    <strong className="text-gray-900">
+                      {formatCurrency(restockLive.perRecipe, currency)}
+                    </strong>
+                    .
+                  </p>
+                </div>
+              ) : null}
               <Button type="submit" size="lg" className="w-full bg-amber-600 hover:bg-amber-700 min-h-12 text-base" disabled={isSubmitting}>
                 {isSubmitting ? (
                   <><Loader2 size={18} className="mr-2 animate-spin" />Adding…</>

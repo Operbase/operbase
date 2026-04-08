@@ -16,6 +16,7 @@ function mockBusiness(overrides: {
   brand_color?: string
   logo_url?: string | null
   currency?: string
+  timezone?: string
 } = {}) {
   const {
     business_id = 'biz-456',
@@ -23,6 +24,7 @@ function mockBusiness(overrides: {
     brand_color = '#d97706',
     logo_url = null,
     currency = 'USD',
+    timezone = 'Africa/Lagos',
   } = overrides
 
   mockSupabaseClient.auth.getUser.mockResolvedValue({
@@ -43,7 +45,7 @@ function mockBusiness(overrides: {
               name,
               brand_color,
               logo_url,
-              business_settings: { currency },
+              business_settings: { currency, timezone },
             },
           },
           error: null,
@@ -91,6 +93,7 @@ describe('useBusiness()', () => {
 
     expect(result.current.businessId).toBe('biz-456')
     expect(result.current.businessName).toBe('Flour Power Bakery')
+    expect(result.current.timezone).toBe('Africa/Lagos')
   })
 
   it('returns brandColor from businesses table', async () => {
@@ -247,6 +250,7 @@ describe('useBusiness()', () => {
       brandColor: '#111111',
       logoUrl: null,
       currency: 'EUR',
+      timezone: 'Africa/Lagos',
     }
     const { result } = renderHook(() => useBusiness(initial))
 

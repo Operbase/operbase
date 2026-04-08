@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { resolveBusinessTimeZone, salesSinceForDashboardPeriod } from '@/lib/business-time'
 
 export type DashboardSalesPeriod = 'today' | 'week' | 'month' | 'all'
 
@@ -9,27 +10,6 @@ export type DashboardMetrics = {
   totalSales: number
   totalBatches: number
   totalItems: number
-}
-
-/** Start of window for `dashboard_metrics` sales aggregates (batches/items stay all-time). */
-export function salesSinceForDashboardPeriod(
-  period: DashboardSalesPeriod
-): Date | null {
-  if (period === 'all') return null
-  const now = new Date()
-  if (period === 'today') {
-    return new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-    )
-  }
-  if (period === 'week') {
-    const d = new Date(now)
-    d.setDate(d.getDate() - 7)
-    return d
-  }
-  const d = new Date(now)
-  d.setMonth(d.getMonth() - 1)
-  return d
 }
 
 export function dashboardMetricsFromRpc(row: unknown): DashboardMetrics {
@@ -57,11 +37,26 @@ export type DashboardAlertItem = {
   reason: string
 }
 
+/** Unsold finished goods: count + ingredient money still in those items. */
+export type DashboardAtRisk = {
+  itemsLeft: number
+  moneyTiedUp: number
+}
+
+export type DashboardDailyTotals = {
+  madeToday: number
+  soldUnitsToday: number
+  /** Cumulative across all batches: given away, written off, spoilage (not “today” — shown as lifetime context). */
+  lostUnitsLifetime: number
+}
+
 export type DashboardHomePayload = {
-  metrics: DashboardMetrics
-  /** All-time sales totals + all-time batch/item counts — used for empty states and ops context. */
+  /** Sales + profit for the current calendar day in the business timezone. */
+  todayMetrics: DashboardMetrics
+  /** All-time sales totals + all-time batch/item counts — used for empty states. */
   metricsLifetime: DashboardMetrics
-  initialSalesPeriod: DashboardSalesPeriod
+  atRisk: DashboardAtRisk
+  dailyTotals: DashboardDailyTotals
   monthlySpend: DashboardSpendRow[]
   alerts: DashboardAlertItem[]
   error: string | null
@@ -80,17 +75,92 @@ async function fetchDashboardMetrics(
   return dashboardMetricsFromRpc(data)
 }
 
+async function fetchAtRiskAndDailyTotals(
+  supabase: SupabaseClient,
+  businessId: string,
+  timeZone: string
+): Promise<{ atRisk: DashboardAtRisk; dailyTotals: DashboardDailyTotals }> {
+  const tz = resolveBusinessTimeZone(timeZone)
+  const todayStart = salesSinceForDashboardPeriod('today', tz)
+  const todayIso = todayStart?.toISOString() ?? new Date(0).toISOString()
+
+  const empty: { atRisk: DashboardAtRisk; dailyTotals: DashboardDailyTotals } = {
+    atRisk: { itemsLeft: 0, moneyTiedUp: 0 },
+    dailyTotals: { madeToday: 0, soldUnitsToday: 0, lostUnitsLifetime: 0 },
+  }
+
+  const { data: batches, error: batchErr } = await supabase
+    .from('batches')
+    .select(
+      'units_remaining, units_produced, cost_of_goods, produced_at, units_given_away, units_given_out_extra, units_spoiled, units_not_sold_loss'
+    )
+    .eq('business_id', businessId)
+
+  if (batchErr || !batches) {
+    return empty
+  }
+
+  let itemsLeft = 0
+  let moneyTiedUp = 0
+  let madeToday = 0
+  let lostUnitsLifetime = 0
+
+  for (const b of batches) {
+    const ur = Number(b.units_remaining ?? 0)
+    const up = Number(b.units_produced ?? 0)
+    const cogs = b.cost_of_goods != null ? Number(b.cost_of_goods) : null
+    itemsLeft += ur
+    if (ur > 0 && cogs != null && up > 0) {
+      moneyTiedUp += ur * (cogs / up)
+    }
+    lostUnitsLifetime +=
+      Number(b.units_given_away ?? 0) +
+      Number(b.units_given_out_extra ?? 0) +
+      Number(b.units_spoiled ?? 0) +
+      Number(b.units_not_sold_loss ?? 0)
+
+    const producedAt = String(b.produced_at ?? '')
+    if (todayStart && producedAt >= todayIso) {
+      madeToday += up
+    }
+  }
+
+  const { data: salesToday, error: salesErr } = await supabase
+    .from('sales')
+    .select('units_sold')
+    .eq('business_id', businessId)
+    .gte('sold_at', todayIso)
+
+  let soldUnitsToday = 0
+  if (!salesErr && salesToday) {
+    for (const s of salesToday) {
+      soldUnitsToday += Number(s.units_sold ?? 0)
+    }
+  }
+
+  return {
+    atRisk: { itemsLeft, moneyTiedUp },
+    dailyTotals: { madeToday, soldUnitsToday, lostUnitsLifetime },
+  }
+}
+
 export async function loadDashboardHomeData(
   supabase: SupabaseClient,
   businessId: string,
-  options?: { salesPeriod?: DashboardSalesPeriod }
+  timeZone: string
 ): Promise<DashboardHomePayload> {
-  const initialSalesPeriod: DashboardSalesPeriod = options?.salesPeriod ?? 'month'
-  const since = salesSinceForDashboardPeriod(initialSalesPeriod)
-
+  const tz = resolveBusinessTimeZone(timeZone)
   const now = new Date()
-  const y = now.getUTCFullYear()
-  const m = now.getUTCMonth() + 1
+  const cal = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+  const [yStr, mStr] = cal.split('-')
+  const y = Number(yStr)
+  const m = Number(mStr)
+  const todaySince = salesSinceForDashboardPeriod('today', tz, now)
 
   const emptyMetrics: DashboardMetrics = {
     totalRevenue: 0,
@@ -102,9 +172,10 @@ export async function loadDashboardHomeData(
   }
 
   const empty: DashboardHomePayload = {
-    metrics: emptyMetrics,
+    todayMetrics: emptyMetrics,
     metricsLifetime: emptyMetrics,
-    initialSalesPeriod,
+    atRisk: { itemsLeft: 0, moneyTiedUp: 0 },
+    dailyTotals: { madeToday: 0, soldUnitsToday: 0, lostUnitsLifetime: 0 },
     monthlySpend: [],
     alerts: [],
     error: null,
@@ -112,10 +183,8 @@ export async function loadDashboardHomeData(
 
   try {
     const metricsLifetime = await fetchDashboardMetrics(supabase, businessId, null)
-    const metrics =
-      since === null
-        ? metricsLifetime
-        : await fetchDashboardMetrics(supabase, businessId, since)
+    const todayMetrics = await fetchDashboardMetrics(supabase, businessId, todaySince)
+    const { atRisk, dailyTotals } = await fetchAtRiskAndDailyTotals(supabase, businessId, tz)
 
     const { data: spendData, error: spendError } = await supabase.rpc('monthly_spend_by_item', {
       p_business_id: businessId,
@@ -160,9 +229,10 @@ export async function loadDashboardHomeData(
     if (alertsError) parts.push('alerts')
 
     return {
-      metrics,
+      todayMetrics,
       metricsLifetime,
-      initialSalesPeriod,
+      atRisk,
+      dailyTotals,
       monthlySpend,
       alerts,
       error: parts.length ? `Partial load: could not load ${parts.join(', ')}` : null,

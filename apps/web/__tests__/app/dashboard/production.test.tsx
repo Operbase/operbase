@@ -15,6 +15,7 @@ vi.mock('@/providers/business-provider', () => ({
     brandColor: '#d97706',
     logoUrl: null,
     currency: 'USD',
+    timezone: 'Africa/Lagos',
     loading: false,
     error: null,
     refetch: vi.fn(),
@@ -31,7 +32,12 @@ const MOCK_BATCHES = [
     products: { name: 'Sourdough Bread' },
     batch_items: [{ id: 'bi-1' }],
     units_produced: 50,
-    units_remaining: 30,
+    units_remaining: 29,
+    units_given_away: 0,
+    units_sold_from_batch: 21,
+    units_spoiled: 0,
+    units_given_out_extra: 0,
+    units_not_sold_loss: 0,
     cost_of_goods: 120,
     notes: 'Sourdough Bread',
     produced_at: '2026-04-01T08:00:00Z',
@@ -43,6 +49,11 @@ const MOCK_BATCHES = [
     batch_items: [],
     units_produced: 100,
     units_remaining: 100,
+    units_given_away: 0,
+    units_sold_from_batch: 0,
+    units_spoiled: 0,
+    units_given_out_extra: 0,
+    units_not_sold_loss: 0,
     cost_of_goods: null,
     notes: 'Croissants · batch #002',
     produced_at: '2026-04-02T08:00:00Z',
@@ -56,11 +67,16 @@ const initialBatches: ProductionBatchRow[] = MOCK_BATCHES.map((b) => ({
     (b.products as { name?: string } | null)?.name ?? (b.notes as string) ?? 'Unnamed batch',
   units_produced: b.units_produced,
   units_remaining: b.units_remaining,
-  units_given_away: 0,
+  units_given_away: b.units_given_away ?? 0,
+  units_sold_from_batch: b.units_sold_from_batch ?? 0,
+  units_spoiled: b.units_spoiled ?? 0,
+  units_given_out_extra: b.units_given_out_extra ?? 0,
+  units_not_sold_loss: b.units_not_sold_loss ?? 0,
   cost_of_goods: b.cost_of_goods,
   notes: b.notes as string,
   produced_at: b.produced_at as string,
   has_inventory_lines: Array.isArray(b.batch_items) && b.batch_items.length > 0,
+  revenue_from_batch: 0,
 }))
 
 function renderProduction() {
@@ -71,6 +87,16 @@ function renderProduction() {
 
 function setupMocks() {
   mockSupabaseClient.from.mockImplementation((table: string) => {
+    if (table === 'sales') {
+      return {
+        ...createQueryBuilder({ data: [] }),
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        not: vi.fn().mockReturnThis(),
+        then: (resolve: (v: unknown) => void) =>
+          Promise.resolve({ data: [], error: null }).then(resolve),
+      }
+    }
     if (table === 'batches') {
       return {
         ...createQueryBuilder({ data: MOCK_BATCHES }),
@@ -115,9 +141,7 @@ describe('ProductionPage', () => {
   it('renders the page header', async () => {
     renderProduction()
     expect(screen.getByRole('heading', { name: /^production$/i })).toBeInTheDocument()
-    expect(
-      screen.getByText(/record what you made/i)
-    ).toBeInTheDocument()
+    expect(screen.getByText(/cost as you type/i)).toBeInTheDocument()
   })
 
   it('shows Record production button', () => {
@@ -136,8 +160,13 @@ describe('ProductionPage', () => {
   it('shows summary stats', async () => {
     renderProduction()
     await waitFor(() => {
-      expect(screen.getByText('2')).toBeInTheDocument() // Total Batches
       expect(screen.getByText('150')).toBeInTheDocument() // Total Produced (50+100)
+      const soldOverviewCard = screen
+        .getAllByText('Sold')
+        .map((el) => el.closest('[data-slot="card"]'))
+        .find((card) => card?.querySelector('[data-slot="card-content"]'))
+      expect(soldOverviewCard).toBeTruthy()
+      expect(within(soldOverviewCard as HTMLElement).getByText('21')).toBeInTheDocument()
     })
   })
 
@@ -232,8 +261,7 @@ describe('ProductionPage', () => {
 
     await waitFor(() => screen.getByText('Sourdough Bread'))
 
-    const deleteButtons = screen.getAllByRole('button', { name: '' })
-    await user.click(deleteButtons[0])
+    await user.click(screen.getByRole('button', { name: /delete sourdough bread/i }))
 
     expect(confirmSpy).toHaveBeenCalledWith(
       'Delete this batch? Stock from ingredients will be restored if applicable.'

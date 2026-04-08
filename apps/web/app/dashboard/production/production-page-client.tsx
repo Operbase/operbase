@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,16 +21,21 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import Link from 'next/link'
-import { Plus, Trash2, Loader2 } from 'lucide-react'
+import { Plus, Trash2, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { useBusinessContext } from '@/providers/business-provider'
 import { formatCurrency } from '@/lib/format-currency'
 import { trackEvent } from '@/lib/services/events'
-import { costPerOutputUnit } from '@/lib/bakery/cost'
+import { costPerOutputUnit, costPerUsageUnit } from '@/lib/bakery/cost'
 import { COMMON_BAKES, COMMON_BATCH_SIZES } from '@/lib/bakery/simple-presets'
 import { CupFractionRow, WholeNumberChips } from '@/components/bakery-quick-picks'
 import { friendlyError } from '@/lib/errors'
+import {
+  businessCalendarDateToIsoUtc,
+  formatCalendarDateInTimeZone,
+  formatFriendlyDate,
+} from '@/lib/business-time'
 import type {
   ProductionBatchRow,
   ProductionStockItemRow,
@@ -61,7 +66,7 @@ export function ProductionPageClient({
   initialBatches: ProductionBatchRow[]
   initialStockItems: ProductionStockItemRow[]
 }) {
-  const { businessId, currency } = useBusinessContext()
+  const { businessId, currency, timezone } = useBusinessContext()
   const [batches, setBatches] = useState<Batch[]>(initialBatches)
   const [stockItems, setStockItems] = useState<StockItemOption[]>(initialStockItems)
   const [isLoading, setIsLoading] = useState(false)
@@ -74,7 +79,7 @@ export function ProductionPageClient({
     unitsProduced: '',
     unitsGivenAway: '',
     notes: '',
-    producedAt: new Date().toISOString().split('T')[0],
+    producedAt: formatCalendarDateInTimeZone(new Date(), timezone),
   })
   const [lines, setLines] = useState<LineRow[]>([
     { itemId: '', quantity: '', purchaseLotId: '' },
@@ -82,6 +87,10 @@ export function ProductionPageClient({
   const [lotOptionsByItem, setLotOptionsByItem] = useState<
     Record<string, PurchaseLotOption[]>
   >({})
+  const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null)
+  const [disposeTarget, setDisposeTarget] = useState<Batch | null>(null)
+  const [disposeQty, setDisposeQty] = useState('')
+  const [disposeSubmitting, setDisposeSubmitting] = useState(false)
 
   const fetchStockItems = useCallback(async () => {
     if (!businessId) return
@@ -91,6 +100,7 @@ export function ProductionPageClient({
       .select(
         `
         id, name, type,
+        cost_per_unit, conversion_ratio, avg_cost_per_usage_unit,
         usage_unit:units!items_usage_unit_id_fkey (name)
       `
       )
@@ -110,6 +120,9 @@ export function ProductionPageClient({
           name: row.name as string,
           type: row.type as string,
           usage_unit_name: uu?.name ?? '',
+          avg_cost_per_usage_unit: Number(row.avg_cost_per_usage_unit ?? 0),
+          cost_per_unit: Number(row.cost_per_unit ?? 0),
+          conversion_ratio: Number(row.conversion_ratio ?? 1),
         }
       })
     )
@@ -147,11 +160,18 @@ export function ProductionPageClient({
     setIsLoading(true)
     const client = createClient()
 
-    const { data, error } = await client
-      .from('batches')
-      .select('*, products(name), batch_items(id)')
-      .eq('business_id', businessId)
-      .order('produced_at', { ascending: false })
+    const [{ data, error }, salesRes] = await Promise.all([
+      client
+        .from('batches')
+        .select('*, products(name), batch_items(id)')
+        .eq('business_id', businessId)
+        .order('produced_at', { ascending: false }),
+      client
+        .from('sales')
+        .select('batch_id, revenue')
+        .eq('business_id', businessId)
+        .not('batch_id', 'is', null),
+    ])
 
     if (error) {
       toast.error(friendlyError(error))
@@ -159,23 +179,40 @@ export function ProductionPageClient({
       return
     }
 
+    const revenueByBatch = new Map<string, number>()
+    for (const row of salesRes.data ?? []) {
+      const r = row as { batch_id: string | null; revenue: number | string | null }
+      if (!r.batch_id || r.revenue == null) continue
+      const prev = revenueByBatch.get(r.batch_id) ?? 0
+      revenueByBatch.set(r.batch_id, prev + Number(r.revenue))
+    }
+
     setBatches(
       (data ?? []).map((b: Record<string, unknown>) => {
         const products = b.products as { name?: string } | null
         const bi = b.batch_items as { id: string }[] | null
         const notes = b.notes as string | null
+        const id = b.id as string
         return {
-          id: b.id as string,
+          id,
           product_id: (b.product_id as string | null) ?? null,
           product_name: products?.name ?? notes ?? 'Unnamed batch',
           units_produced: Number(b.units_produced),
           units_remaining: Number(b.units_remaining),
           units_given_away:
             b.units_given_away != null ? Number(b.units_given_away) : 0,
+          units_sold_from_batch:
+            b.units_sold_from_batch != null ? Number(b.units_sold_from_batch) : 0,
+          units_spoiled: b.units_spoiled != null ? Number(b.units_spoiled) : 0,
+          units_given_out_extra:
+            b.units_given_out_extra != null ? Number(b.units_given_out_extra) : 0,
+          units_not_sold_loss:
+            b.units_not_sold_loss != null ? Number(b.units_not_sold_loss) : 0,
           cost_of_goods: b.cost_of_goods != null ? Number(b.cost_of_goods) : null,
           notes,
           produced_at: b.produced_at as string,
           has_inventory_lines: Array.isArray(bi) && bi.length > 0,
+          revenue_from_batch: revenueByBatch.get(id) ?? 0,
         }
       })
     )
@@ -208,24 +245,31 @@ export function ProductionPageClient({
       unitsProduced: '',
       unitsGivenAway: '',
       notes: '',
-      producedAt: new Date().toISOString().split('T')[0],
+      producedAt: formatCalendarDateInTimeZone(new Date(), timezone),
     })
     setLines([{ itemId: '', quantity: '', purchaseLotId: '' }])
     setDialogOpen(true)
   }
 
-  function openEdit(batch: Batch) {
+  function requestEditBatch(batch: Batch) {
     if (batch.has_inventory_lines) {
-      toast.message('Batches with ingredient deductions can only be deleted (stock is restored).')
+      toast.message(
+        'This run already moved ingredients out of your stock. To fix a mistake, delete the run (we put stock back) and record it again.',
+        { duration: 9000 }
+      )
       return
     }
+    openEdit(batch)
+  }
+
+  function openEdit(batch: Batch) {
     setEditingBatch(batch)
     setForm({
       productName: batch.product_name,
       unitsProduced: batch.units_produced.toString(),
       unitsGivenAway: '',
       notes: '',
-      producedAt: batch.produced_at.split('T')[0],
+      producedAt: formatCalendarDateInTimeZone(new Date(batch.produced_at), timezone),
     })
     setLines([{ itemId: '', quantity: '', purchaseLotId: '' }])
     setDialogOpen(true)
@@ -297,7 +341,7 @@ export function ProductionPageClient({
             product_id: productId,
             units_produced: units,
             units_remaining: units,
-            produced_at: form.producedAt,
+            produced_at: businessCalendarDateToIsoUtc(form.producedAt, timezone),
           })
           .eq('id', editingBatch.id)
 
@@ -307,7 +351,7 @@ export function ProductionPageClient({
         const { data: batchId, error } = await client.rpc('create_production_batch', {
           p_business_id: businessId,
           p_units_produced: units,
-          p_produced_at: new Date(form.producedAt).toISOString(),
+          p_produced_at: businessCalendarDateToIsoUtc(form.producedAt, timezone),
           p_display_name: nameTrim,
           p_extra_notes: form.notes.trim() || null,
           p_lines: resolvedLines,
@@ -349,13 +393,47 @@ export function ProductionPageClient({
     fetchStockItems()
   }
 
+  async function submitDispose(kind: 'given_out' | 'not_sold') {
+    if (!disposeTarget || !businessId || disposeSubmitting) return
+    const qty = parseFloat(disposeQty)
+    if (!qty || qty <= 0) {
+      toast.error('Enter how many items this applies to.')
+      return
+    }
+    if (qty > disposeTarget.units_remaining) {
+      toast.error(`You only have ${disposeTarget.units_remaining} left in this run.`)
+      return
+    }
+    setDisposeSubmitting(true)
+    try {
+      const client = createClient()
+      const { error } = await client.rpc('dispose_batch_units', {
+        p_batch_id: disposeTarget.id,
+        p_quantity: qty,
+        p_kind: kind,
+      })
+      if (error) throw error
+      const label =
+        kind === 'given_out'
+          ? 'Saved — those were given away.'
+          : 'Saved — those won’t be sold (counted as lost).'
+      toast.success(label)
+      setDisposeTarget(null)
+      setDisposeQty('')
+      setExpandedBatchId(null)
+      fetchBatches()
+    } catch (err: unknown) {
+      toast.error(friendlyError(err, 'Could not update this run'))
+    } finally {
+      setDisposeSubmitting(false)
+    }
+  }
+
   const totalProduced = batches.reduce((sum, b) => sum + b.units_produced, 0)
   const totalRemaining = batches.reduce((sum, b) => sum + b.units_remaining, 0)
-  const totalSoldFromBatches = batches.reduce(
-    (sum, b) =>
-      sum + Math.max(0, b.units_produced - b.units_given_away - b.units_remaining),
-    0
-  )
+  const totalSoldFromBatches = batches.reduce((sum, b) => sum + b.units_sold_from_batch, 0)
+  const totalGivenAtStart = batches.reduce((sum, b) => sum + b.units_given_away, 0)
+  const totalGivenLater = batches.reduce((sum, b) => sum + b.units_given_out_extra, 0)
 
   function lineUsageUnitName(line: LineRow): string | null {
     const it = stockItems.find((s) => s.id === line.itemId)
@@ -366,19 +444,90 @@ export function ProductionPageClient({
     setLines((prev) => prev.map((row, i) => (i === index ? { ...row, quantity: value } : row)))
   }
 
+  function estimatedCostPerUsageUnit(it: StockItemOption): number {
+    if (it.avg_cost_per_usage_unit > 0) return it.avg_cost_per_usage_unit
+    return costPerUsageUnit(it.cost_per_unit, it.conversion_ratio)
+  }
+
+  const totalMoneyTiedUp = useMemo(() => {
+    let sum = 0
+    for (const b of batches) {
+      const cogs = b.cost_of_goods ?? 0
+      if (b.units_remaining <= 0 || b.cost_of_goods == null || b.units_produced <= 0) continue
+      const cpu = costPerOutputUnit(cogs, b.units_produced)
+      sum += b.units_remaining * cpu
+    }
+    return sum
+  }, [batches])
+
+  const firstSellBatchId = useMemo(() => {
+    const b = batches.find((x) => x.units_remaining > 0 && x.product_id)
+    return b?.id ?? null
+  }, [batches])
+
+  const liveProductionCost = useMemo(() => {
+    let ingredients = 0
+    const lineDetails: { name: string; qty: number; unit: string; est: number }[] = []
+    for (const line of lines) {
+      const qty = parseFloat(line.quantity)
+      if (!line.itemId || !qty || qty <= 0) continue
+      const it = stockItems.find((s) => s.id === line.itemId)
+      if (!it) continue
+      const cpu = estimatedCostPerUsageUnit(it)
+      const sub = qty * cpu
+      ingredients += sub
+      lineDetails.push({ name: it.name, qty, unit: it.usage_unit_name, est: sub })
+    }
+    const made = parseFloat(form.unitsProduced) || 0
+    const perPiece = made > 0 ? ingredients / made : 0
+    return { ingredients, perPiece, made, lineDetails }
+  }, [lines, stockItems, form.unitsProduced])
+
   return (
     <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Production</h1>
           <p className="text-gray-600 mt-1">
-            Record what you made. Enter what you used (in your recipe units); we take stock from the oldest
-            purchases first unless you pick a specific delivery.{' '}
+            Record what you made; we pull ingredients from stock and show cost as you type.{' '}
             <Link href="/dashboard/stock" className="text-amber-700 underline font-medium">
-              Add stock first
+              Add stock
             </Link>{' '}
             if something is missing.
           </p>
         </div>
+
+        {batches.length > 0 && (
+          <Card className="border-2 border-amber-300 bg-amber-50/90 shadow-md">
+            <CardContent className="pt-6 pb-5">
+              <p className="text-sm font-semibold text-amber-950 uppercase tracking-wide">
+                Money tied up in unsold items
+              </p>
+              <p className="text-3xl sm:text-4xl font-extrabold tabular-nums text-gray-900 mt-1">
+                {formatCurrency(totalMoneyTiedUp, currency)}
+              </p>
+              <p className="text-sm text-gray-800 mt-2 max-w-xl">
+                That is cost still sitting in what you have not sold yet.
+              </p>
+              <p className="text-sm font-semibold text-amber-950 mt-3 bg-amber-100/90 border border-amber-200 rounded-lg px-3 py-2">
+                If they do not sell, you lose this money.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 mt-5">
+                <Button
+                  asChild
+                  size="lg"
+                  className="min-h-12 text-base flex-1 bg-green-600 hover:bg-green-700"
+                >
+                  <Link href={firstSellBatchId ? `/dashboard/sales?batch=${firstSellBatchId}` : '/dashboard/sales'}>
+                    Sell now
+                  </Link>
+                </Button>
+                <Button asChild size="lg" variant="outline" className="min-h-12 text-base flex-1 bg-white">
+                  <Link href="#production-batches">What happened?</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -424,7 +573,7 @@ export function ProductionPageClient({
                     disabled={!!editingBatch?.has_inventory_lines}
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Use the same wording in Sales when you ring up that item so cost lines up.
+                    Type it the same way when you sell, so money and costs match up.
                   </p>
                 </div>
                 <div>
@@ -448,23 +597,23 @@ export function ProductionPageClient({
                   />
                 </div>
                 {!editingBatch && (
-                  <div>
-                    <Label className="text-base">Samples, waste, or gifts (optional)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      inputMode="decimal"
-                      value={form.unitsGivenAway}
-                      onChange={(e) => setForm({ ...form, unitsGivenAway: e.target.value })}
-                      placeholder="0 — not sold, but still part of this run"
-                      className="mt-2 min-h-11 text-base"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Profit only counts sales; cost still spreads across everything you made, including
-                      these.
-                    </p>
-                  </div>
+                <div>
+                  <Label className="text-base">Gave out or lost at make time</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    value={form.unitsGivenAway}
+                    onChange={(e) => setForm({ ...form, unitsGivenAway: e.target.value })}
+                    placeholder="0 if everything was for sale"
+                    className="mt-2 min-h-11 text-base"
+                  />
+                  <p className="text-xs text-gray-600 mt-1">
+                    Samples, gifts, or waste from this batch still use ingredients — we count them here so
+                    “what is left to sell” stays accurate.
+                  </p>
+                </div>
                 )}
                 <div>
                   <Label htmlFor="date" className="text-base">
@@ -504,6 +653,12 @@ export function ProductionPageClient({
                     </p>
                     {lines.map((line, index) => {
                       const cupItem = lineUsageUnitName(line) === 'cup'
+                      const lineItem = line.itemId
+                        ? stockItems.find((s) => s.id === line.itemId)
+                        : null
+                      const lineQty = parseFloat(line.quantity)
+                      const lineEstSubtotal =
+                        lineItem && lineQty > 0 ? lineQty * estimatedCostPerUsageUnit(lineItem) : null
                       return (
                         <div key={index} className="space-y-2 border-b border-amber-100 pb-3 last:border-0">
                           <select
@@ -515,7 +670,6 @@ export function ProductionPageClient({
                                   i === index ? { ...row, itemId: v, purchaseLotId: '' } : row
                                 )
                               )
-                              if (v) void fetchLotsForItem(v)
                             }}
                             className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-base min-h-11"
                           >
@@ -533,9 +687,22 @@ export function ProductionPageClient({
                             inputMode="decimal"
                             value={line.quantity}
                             onChange={(e) => setLineQty(index, e.target.value)}
-                            placeholder="Amount"
+                            placeholder="How much did you use?"
                             className="min-h-11 text-base"
                           />
+                          {lineEstSubtotal != null && lineQty > 0 ? (
+                            <p className="text-xs text-gray-600">
+                              This line:{' '}
+                              <strong className="text-gray-900">
+                                {formatCurrency(lineEstSubtotal / lineQty, currency)}
+                              </strong>{' '}
+                              per {lineItem?.usage_unit_name ?? 'unit'} ·{' '}
+                              <strong className="text-gray-900">
+                                {formatCurrency(lineEstSubtotal, currency)}
+                              </strong>{' '}
+                              total (from your latest costs).
+                            </p>
+                          ) : null}
                           {cupItem && (
                             <div>
                               <p className="text-xs text-gray-600 mb-1">Cup shortcuts</p>
@@ -549,41 +716,51 @@ export function ProductionPageClient({
                             />
                           )}
                           {line.itemId ? (
-                            <div>
-                              <Label className="text-xs text-gray-600 font-normal">
-                                Which delivery to use? (optional)
-                              </Label>
-                              <select
-                                value={line.purchaseLotId}
-                                onChange={(e) =>
-                                  setLines((prev) =>
-                                    prev.map((row, i) =>
-                                      i === index
-                                        ? { ...row, purchaseLotId: e.target.value }
-                                        : row
-                                    )
-                                  )
+                            <details
+                              className="text-xs border border-dashed border-gray-200 rounded-md px-2 py-1"
+                              onToggle={(e) => {
+                                const el = e.currentTarget
+                                if (el.open && line.itemId) {
+                                  void fetchLotsForItem(line.itemId)
                                 }
-                                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm min-h-10 mt-1"
-                              >
-                                <option value="">Oldest stock first (recommended)</option>
-                                {(lotOptionsByItem[line.itemId] ?? []).map((lot) => {
-                                  const u = stockItems.find((s) => s.id === line.itemId)
-                                    ?.usage_unit_name
-                                  return (
-                                    <option key={lot.id} value={lot.id}>
-                                      {new Date(lot.purchased_at).toLocaleDateString()} ·{' '}
-                                      {Number(lot.quantity_remaining).toFixed(2)} {u ?? ''} left @{' '}
-                                      {formatCurrency(
-                                        Number(lot.cost_per_usage_unit),
-                                        currency
-                                      )}
-                                      /{u ?? 'unit'}
-                                    </option>
-                                  )
-                                })}
-                              </select>
-                            </div>
+                              }}
+                            >
+                              <summary className="cursor-pointer text-gray-600 py-1">
+                                Something wrong with stock? Pick a specific purchase (optional)
+                              </summary>
+                              <div className="pt-2 pb-1">
+                                <select
+                                  value={line.purchaseLotId}
+                                  onChange={(ev) =>
+                                    setLines((prev) =>
+                                      prev.map((row, i) =>
+                                        i === index
+                                          ? { ...row, purchaseLotId: ev.target.value }
+                                          : row
+                                      )
+                                    )
+                                  }
+                                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm min-h-10"
+                                >
+                                  <option value="">Let Operbase choose (normal)</option>
+                                  {(lotOptionsByItem[line.itemId] ?? []).map((lot) => {
+                                    const u = stockItems.find((s) => s.id === line.itemId)
+                                      ?.usage_unit_name
+                                    return (
+                                      <option key={lot.id} value={lot.id}>
+                                        {new Date(lot.purchased_at).toLocaleDateString()} ·{' '}
+                                        {Number(lot.quantity_remaining).toFixed(2)} {u ?? ''} @{' '}
+                                        {formatCurrency(
+                                          Number(lot.cost_per_usage_unit),
+                                          currency
+                                        )}
+                                        /{u ?? 'unit'}
+                                      </option>
+                                    )
+                                  })}
+                                </select>
+                              </div>
+                            </details>
                           ) : null}
                           {lines.length > 1 && (
                             <Button
@@ -599,6 +776,45 @@ export function ProductionPageClient({
                         </div>
                       )
                     })}
+                  </div>
+                )}
+
+                {!editingBatch && liveProductionCost.lineDetails.length > 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+                    <p className="text-sm font-semibold text-gray-900">Cost preview</p>
+                    <ul className="text-sm text-gray-700 space-y-1.5">
+                      {liveProductionCost.lineDetails.map((d, i) => (
+                        <li key={`${d.name}-${i}`} className="flex justify-between gap-3">
+                          <span className="min-w-0 truncate">
+                            {d.name} × {d.qty} {d.unit}
+                          </span>
+                          <span className="tabular-nums shrink-0">
+                            {formatCurrency(d.est, currency)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="border-t border-amber-100 pt-2 space-y-1 text-sm">
+                      <div className="flex justify-between font-medium text-gray-900">
+                        <span>Ingredients total</span>
+                        <span>{formatCurrency(liveProductionCost.ingredients, currency)}</span>
+                      </div>
+                      {liveProductionCost.made > 0 ? (
+                        <div className="flex justify-between text-gray-700">
+                          <span>Per finished item (÷ {liveProductionCost.made})</span>
+                          <span className="font-semibold tabular-nums">
+                            {formatCurrency(liveProductionCost.perPiece, currency)}
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-amber-900/80">
+                          Enter how many you made above to see cost per item.
+                        </p>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-600 leading-snug">
+                      When you save, we use the exact lots you bought so this total matches your stock.
+                    </p>
                   </div>
                 )}
 
@@ -620,15 +836,7 @@ export function ProductionPageClient({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Total Batches</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{batches.length}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Units Produced</CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-600">Made</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{totalProduced.toFixed(0)}</div>
@@ -636,15 +844,7 @@ export function ProductionPageClient({
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Units Remaining</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-amber-600">{totalRemaining.toFixed(0)}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Units Sold</CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-600">Sold</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">
@@ -652,11 +852,29 @@ export function ProductionPageClient({
               </div>
             </CardContent>
           </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Left</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-amber-600">{totalRemaining.toFixed(0)}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Lost</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-gray-500">
+                {(totalGivenAtStart + totalGivenLater + batches.reduce((sum, b) => sum + b.units_spoiled + b.units_not_sold_loss, 0)).toFixed(0)}
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
-        <Card>
+        <Card id="production-batches">
           <CardHeader>
-            <CardTitle>Production batches</CardTitle>
+            <CardTitle>Your runs</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -671,63 +889,237 @@ export function ProductionPageClient({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Product / name</TableHead>
-                      <TableHead>Made</TableHead>
-                      <TableHead>Given / waste</TableHead>
-                      <TableHead>Left to sell</TableHead>
-                      <TableHead>Run cost</TableHead>
-                      <TableHead>Cost / unit</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="w-10 p-2" />
+                      <TableHead>Product</TableHead>
+                      <TableHead>Sold</TableHead>
+                      <TableHead>Left</TableHead>
+                      <TableHead>Lost</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {batches.map((batch) => {
                       const cogs = batch.cost_of_goods ?? 0
                       const cpu = costPerOutputUnit(cogs, batch.units_produced)
+                      const tiedUp =
+                        batch.units_remaining > 0 && batch.cost_of_goods != null && batch.units_produced > 0
+                          ? batch.units_remaining * cpu
+                          : 0
+                      const runResult = batch.revenue_from_batch - (batch.cost_of_goods ?? 0)
+                      const expanded = expandedBatchId === batch.id
+                      const totalLost = batch.units_given_away + batch.units_given_out_extra + batch.units_spoiled + batch.units_not_sold_loss
                       return (
-                        <TableRow key={batch.id}>
-                          <TableCell className="font-medium">
-                            {batch.product_name}
-                            {batch.has_inventory_lines && (
-                              <span className="ml-2 text-xs text-gray-500">(inventory)</span>
-                            )}
-                          </TableCell>
-                          <TableCell>{batch.units_produced}</TableCell>
-                          <TableCell>{batch.units_given_away > 0 ? batch.units_given_away : '—'}</TableCell>
-                          <TableCell>{batch.units_remaining}</TableCell>
-                          <TableCell>
-                            {batch.cost_of_goods != null ? formatCurrency(cogs, currency) : '-'}
-                          </TableCell>
-                          <TableCell>
-                            {batch.cost_of_goods != null ? formatCurrency(cpu, currency) : '-'}
-                          </TableCell>
-                          <TableCell>{new Date(batch.produced_at).toLocaleDateString()}</TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
+                        <Fragment key={batch.id}>
+                          <TableRow>
+                            <TableCell className="p-2">
                               <Button
+                                type="button"
                                 size="sm"
-                                variant="outline"
-                                onClick={() => openEdit(batch)}
-                                disabled={batch.has_inventory_lines}
-                                title={
-                                  batch.has_inventory_lines
-                                    ? 'Delete and recreate to change ingredients'
-                                    : undefined
-                                }
+                                variant="ghost"
+                                className="h-8 w-8 p-0"
+                                aria-expanded={expanded}
+                                aria-label={expanded ? 'Hide run details' : 'Show run details'}
+                                onClick={() => setExpandedBatchId(expanded ? null : batch.id)}
                               >
-                                Edit
+                                {expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                               </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleDelete(batch.id)}
-                              >
-                                <Trash2 size={14} />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
+                            </TableCell>
+                            <TableCell className="font-medium">
+                              <div>{batch.product_name}</div>
+                              <div className="text-sm font-normal text-gray-500">
+                                {formatFriendlyDate(batch.produced_at, timezone)}
+                              </div>
+                            </TableCell>
+                            <TableCell className="tabular-nums text-green-700">
+                              {batch.units_sold_from_batch}
+                            </TableCell>
+                            <TableCell className="tabular-nums font-medium text-amber-700">
+                              {batch.units_remaining}
+                            </TableCell>
+                            <TableCell className="tabular-nums text-gray-500">
+                              {totalLost > 0 ? totalLost : '-'}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex flex-wrap gap-1 justify-end">
+                                {batch.units_remaining > 0 && batch.product_id ? (
+                                  <Button size="sm" variant="default" className="bg-green-600 hover:bg-green-700" asChild>
+                                    <Link href={`/dashboard/sales?batch=${batch.id}`}>Sell</Link>
+                                  </Button>
+                                ) : null}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={batch.units_remaining <= 0}
+                                  onClick={() => {
+                                    setDisposeTarget(batch)
+                                    setDisposeQty('')
+                                  }}
+                                >
+                                  What happened?
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => requestEditBatch(batch)}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-gray-400 hover:text-red-600"
+                                  aria-label={`Delete ${batch.product_name}`}
+                                  onClick={() => handleDelete(batch.id)}
+                                >
+                                  <Trash2 size={14} />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          {expanded ? (
+                            <TableRow className="bg-gray-50/80">
+                              <TableCell colSpan={6} className="p-4 text-sm text-gray-800">
+                                <div className="space-y-4 max-w-3xl">
+                                  <div className="rounded-lg border-2 border-amber-300 bg-amber-50/90 p-4">
+                                    <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">
+                                      Money tied up in what is left
+                                    </p>
+                                    {tiedUp > 0 ? (
+                                      <>
+                                        <p className="text-2xl font-bold tabular-nums text-gray-900 mt-1">
+                                          {formatCurrency(tiedUp, currency)}
+                                        </p>
+                                        <p className="text-sm text-gray-700 mt-2">
+                                          That is your ingredient cost in the{' '}
+                                          <strong className="tabular-nums">{batch.units_remaining}</strong> you
+                                          have not sold yet.{' '}
+                                          {batch.product_id ? (
+                                            <>
+                                              <Link
+                                                href={`/dashboard/sales?batch=${batch.id}`}
+                                                className="text-amber-800 font-semibold underline underline-offset-2"
+                                              >
+                                                Log a sale
+                                              </Link>{' '}
+                                              to turn this into cash, or use{' '}
+                                            </>
+                                          ) : (
+                                            <>Use </>
+                                          )}
+                                          <span className="font-medium">What happened?</span> above if those
+                                          pieces will not sell.
+                                        </p>
+                                      </>
+                                    ) : (
+                                      <p className="text-sm text-gray-700 mt-1">
+                                        Nothing left unsold from this run — no money waiting on the shelf here.
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  {batch.cost_of_goods != null ? (
+                                    <div
+                                      className={`rounded-xl border-2 p-5 sm:p-6 ${
+                                        runResult >= 0
+                                          ? 'border-green-400 bg-green-50/90'
+                                          : 'border-red-400 bg-red-50/90'
+                                      }`}
+                                    >
+                                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+                                        {runResult >= 0 ? 'Ahead on this run' : 'Behind on this run'}
+                                      </p>
+                                      <p
+                                        className={`text-3xl sm:text-4xl font-extrabold tabular-nums mt-1 ${
+                                          runResult >= 0 ? 'text-green-800' : 'text-red-800'
+                                        }`}
+                                      >
+                                        {runResult >= 0 ? '+' : '-'}
+                                        {formatCurrency(Math.abs(runResult), currency)}
+                                      </p>
+                                      <p className="text-sm font-medium text-gray-800 mt-3">
+                                        {runResult < 0
+                                          ? 'You may need to increase your price.'
+                                          : batch.revenue_from_batch > 0
+                                            ? 'Nice — this batch did well.'
+                                            : batch.units_remaining > 0
+                                              ? 'Still waiting for sales — make sure the price works for you.'
+                                              : 'Costs are covered for this run.'}
+                                      </p>
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-gray-600">
+                                      Cost for this run was not recorded — add what you used next time for clearer
+                                      numbers.
+                                    </p>
+                                  )}
+
+                                  <details className="rounded-lg border border-gray-200 bg-white p-3">
+                                    <summary className="cursor-pointer font-medium text-gray-900">
+                                      See full breakdown
+                                    </summary>
+                                    <ul className="mt-3 grid sm:grid-cols-2 gap-2 text-gray-700 text-sm">
+                                      <li>
+                                        You made{' '}
+                                        <strong className="tabular-nums">{batch.units_produced}</strong> in this
+                                        run.
+                                      </li>
+                                      <li>
+                                        <strong className="tabular-nums text-green-700">
+                                          {batch.units_sold_from_batch}
+                                        </strong>{' '}
+                                        sold ·{' '}
+                                        <strong className="tabular-nums text-amber-700">
+                                          {batch.units_remaining}
+                                        </strong>{' '}
+                                        left ·{' '}
+                                        <strong className="tabular-nums text-gray-600">
+                                          {totalLost > 0 ? totalLost : 0}
+                                        </strong>{' '}
+                                        lost (not sold)
+                                      </li>
+                                      <li>
+                                        Sales money for this run:{' '}
+                                        <strong className="tabular-nums text-green-700">
+                                          {formatCurrency(batch.revenue_from_batch, currency)}
+                                        </strong>
+                                      </li>
+                                      <li>
+                                        Cost to make this run:{' '}
+                                        <strong className="tabular-nums">
+                                          {batch.cost_of_goods != null
+                                            ? formatCurrency(batch.cost_of_goods, currency)
+                                            : '—'}
+                                        </strong>
+                                      </li>
+                                    </ul>
+                                    {totalLost > 0 ? (
+                                      <p className="mt-3 text-xs text-gray-600 border-t pt-3">
+                                        Lost breakdown:{' '}
+                                        <span className="tabular-nums">
+                                          {batch.units_given_away + batch.units_given_out_extra}
+                                        </span>{' '}
+                                        given away ·{' '}
+                                        <span className="tabular-nums">
+                                          {batch.units_spoiled + batch.units_not_sold_loss}
+                                        </span>{' '}
+                                        did not become sales (waste, expired, or written off).
+                                      </p>
+                                    ) : null}
+                                    {batch.cost_of_goods != null && batch.units_produced > 0 ? (
+                                      <p className="mt-2 text-xs text-gray-600">
+                                        About{' '}
+                                        <strong className="tabular-nums">
+                                          {formatCurrency(cpu, currency)}
+                                        </strong>{' '}
+                                        ingredient cost per piece from this run.
+                                      </p>
+                                    ) : null}
+                                  </details>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                        </Fragment>
                       )
                     })}
                   </TableBody>
@@ -736,6 +1128,83 @@ export function ProductionPageClient({
             )}
           </CardContent>
         </Card>
+
+        <Dialog
+          open={!!disposeTarget}
+          onOpenChange={(open) => {
+            if (!open) {
+              setDisposeTarget(null)
+              setDisposeQty('')
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-xl">What happened to the rest?</DialogTitle>
+            </DialogHeader>
+            {disposeTarget ? (
+              <div className="space-y-4">
+                <div className="bg-gray-50 rounded-lg p-3 text-sm">
+                  <p className="font-medium text-gray-900">{disposeTarget.product_name}</p>
+                  <p className="text-gray-600">{disposeTarget.units_remaining} items not yet sold</p>
+                </div>
+                <div>
+                  <Label htmlFor="disposeQty" className="text-base">
+                    How many?
+                  </Label>
+                  <WholeNumberChips
+                    values={[1, 2, 5, 10]}
+                    onPick={(n) => setDisposeQty(String(n))}
+                    className="mt-2"
+                  />
+                  <Input
+                    id="disposeQty"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    inputMode="decimal"
+                    value={disposeQty}
+                    onChange={(e) => setDisposeQty(e.target.value)}
+                    className="mt-2 min-h-11 text-base"
+                    placeholder={`Max ${disposeTarget.units_remaining}`}
+                  />
+                </div>
+                <p className="text-sm text-gray-600">What happened to them?</p>
+                <div className="grid grid-cols-1 gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-12 justify-start text-base bg-white hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200"
+                    disabled={disposeSubmitting || !disposeQty}
+                    onClick={() => void submitDispose('given_out')}
+                  >
+                    <span className="mr-2" aria-hidden>
+                      🎁
+                    </span>
+                    Gave them away (samples, gifts, staff)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-12 justify-start text-base bg-white hover:bg-red-50 hover:text-red-700 hover:border-red-200"
+                    disabled={disposeSubmitting || !disposeQty}
+                    onClick={() => void submitDispose('not_sold')}
+                  >
+                    <span className="mr-2" aria-hidden>
+                      🗑️
+                    </span>
+                    Didn’t sell (went bad / expired)
+                  </Button>
+                </div>
+                {disposeSubmitting ? (
+                  <p className="text-sm text-gray-500 flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Saving…
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
       </div>
   )
 }
