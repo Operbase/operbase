@@ -191,7 +191,7 @@ describe('ProductionPage', () => {
 
     await user.click(within(dialog).getByRole('button', { name: /save production/i }))
 
-    expect(toast.error).toHaveBeenCalledWith('Please fill in all required fields')
+    expect(toast.error).toHaveBeenCalledWith('Enter the product name.')
   })
 
   it('creates a batch with valid input via RPC', async () => {

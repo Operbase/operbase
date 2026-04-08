@@ -429,8 +429,12 @@ export function SalesPageClient({
     const units = parseFloat(form.unitsSold)
     const price = parseFloat(form.unitPrice)
 
-    if (!units || units <= 0 || !price || price <= 0) {
-      toast.error('Enter how many you sold and the price for each one.')
+    if (!units || units <= 0) {
+      toast.error('Enter how many you sold.')
+      return
+    }
+    if (!price || price <= 0) {
+      toast.error('Enter the price for each one.')
       return
     }
 

@@ -227,7 +227,7 @@ describe('SalesPage', () => {
     await user.click(await screen.findByText(/^Bagels$/))
     await user.click(within(dialog).getByRole('button', { name: /^save sale$/i }))
 
-    expect(toast.error).toHaveBeenCalledWith('Enter how many you sold and the price for each one.')
+    expect(toast.error).toHaveBeenCalledWith('Enter how many you sold.')
   })
 
   it('shows running total when units and price are entered', async () => {

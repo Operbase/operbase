@@ -288,8 +288,12 @@ export function ProductionPageClient({
     if (!businessId || isSubmitting) return
 
     const nameTrim = form.productName.trim()
-    if (!nameTrim || !parseFloat(form.unitsProduced) || parseFloat(form.unitsProduced) <= 0) {
-      toast.error('Please fill in all required fields')
+    if (!nameTrim) {
+      toast.error('Enter the product name.')
+      return
+    }
+    if (!parseFloat(form.unitsProduced) || parseFloat(form.unitsProduced) <= 0) {
+      toast.error('Enter how many you made.')
       return
     }
     if (nameTrim.length > 200) {
