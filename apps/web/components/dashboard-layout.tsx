@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Menu, LogOut, Home, Package, ChefHat, ShoppingBag, Settings, X, HelpCircle } from 'lucide-react'
+import { Menu, LogOut, Home, Package, ChefHat, ShoppingBag, Settings, X, HelpCircle, Tag } from 'lucide-react'
 import { signOut } from '@/lib/auth'
 import { toast } from 'sonner'
 import { useBusinessContext } from '@/providers/business-provider'
@@ -83,6 +83,7 @@ function DashboardLayoutInner({ children, userEmail, userName }: DashboardLayout
 
   const menuItems = [
     { label: 'Home', hint: 'Overview', icon: Home, href: '/dashboard' },
+    { label: 'Products', hint: 'Your catalog', icon: Tag, href: '/dashboard/products' },
     { label: 'Stock', hint: 'Add what you buy', icon: Package, href: '/dashboard/stock' },
     { label: 'Production', hint: 'What you made', icon: ChefHat, href: '/dashboard/production' },
     { label: 'Sales', hint: 'What you sold', icon: ShoppingBag, href: '/dashboard/sales' },

@@ -71,8 +71,13 @@ type SaleSource =
       unitsProduced: number
       costOfGoods: number | null
       producedAt: string
+      variantId: string | null
     }
-  | { kind: 'quick'; productId: string; productName: string }
+  | { kind: 'quick'; productId: string; productName: string; variantId: string | null }
+
+type ProductVariantOption = { id: string; name: string }
+type ProductAddonOption = { id: string; name: string; extra_cost: number | null }
+type ProductWithMeta = { id: string; name: string; variants: ProductVariantOption[]; addons: ProductAddonOption[] }
 
 type BatchItemLine = { itemName: string; lineCost: number }
 
@@ -117,6 +122,11 @@ export function SalesPageClient({
   const [productsForPicker, setProductsForPicker] = useState<ProductRow[]>([])
   const [batchesForPicker, setBatchesForPicker] = useState<BatchOptionRow[]>([])
   const [batchItemLines, setBatchItemLines] = useState<BatchItemLine[]>([])
+  const [productCatalog, setProductCatalog] = useState<ProductWithMeta[]>([])
+  const [variantsForProduct, setVariantsForProduct] = useState<ProductVariantOption[]>([])
+  const [addonsForProduct, setAddonsForProduct] = useState<ProductAddonOption[]>([])
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null)
+  const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([])
   const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null)
   const [salesDetailsOpen, setSalesDetailsOpen] = useState(false)
   const [salePreview, setSalePreview] = useState<{
@@ -221,10 +231,25 @@ export function SalesPageClient({
     [businessId, supabase]
   )
 
+  const loadVariantsAddons = useCallback(
+    (productId: string) => {
+      const found = productCatalog.find((p) => p.id === productId)
+      setVariantsForProduct(found?.variants ?? [])
+      setAddonsForProduct(found?.addons ?? [])
+      setSelectedVariantId(null)
+      setSelectedAddonIds([])
+    },
+    [productCatalog]
+  )
+
   const loadSalePickerData = useCallback(async () => {
     if (!businessId) return
     const [prodRes, batchRes] = await Promise.all([
-      supabase.from('products').select('id, name').eq('business_id', businessId).order('name'),
+      supabase
+        .from('products')
+        .select('id, name, product_variants(id, name, sort_order), product_addons(id, name, extra_cost, sort_order)')
+        .eq('business_id', businessId)
+        .order('name'),
       supabase
         .from('batches')
         .select(
@@ -235,7 +260,18 @@ export function SalesPageClient({
         .order('produced_at', { ascending: true }),
     ])
     if (!prodRes.error && prodRes.data) {
-      setProductsForPicker(prodRes.data as ProductRow[])
+      const catalog = (prodRes.data as Record<string, unknown>[]).map((p) => ({
+        id: p.id as string,
+        name: p.name as string,
+        variants: ((p.product_variants as ProductVariantOption[] | null) ?? [])
+          .slice()
+          .sort((a, b) => (a as unknown as { sort_order: number }).sort_order - (b as unknown as { sort_order: number }).sort_order),
+        addons: ((p.product_addons as ProductAddonOption[] | null) ?? [])
+          .slice()
+          .sort((a, b) => (a as unknown as { sort_order: number }).sort_order - (b as unknown as { sort_order: number }).sort_order),
+      }))
+      setProductCatalog(catalog)
+      setProductsForPicker(catalog.map((p) => ({ id: p.id, name: p.name })))
     }
     if (!batchRes.error && batchRes.data) {
       setBatchesForPicker(batchRes.data as BatchOptionRow[])
@@ -369,6 +405,7 @@ export function SalesPageClient({
       unitsProduced: Number(b.units_produced),
       costOfGoods: b.cost_of_goods != null ? Number(b.cost_of_goods) : null,
       producedAt: b.produced_at,
+      variantId: null,
     })
     router.replace('/dashboard/sales', { scroll: false })
   }, [dialogOpen, businessId, searchParams, batchesForPicker, router])
@@ -381,6 +418,10 @@ export function SalesPageClient({
     setEditingSale(null)
     setSaleSource(null)
     setPickerOpen(false)
+    setVariantsForProduct([])
+    setAddonsForProduct([])
+    setSelectedVariantId(null)
+    setSelectedAddonIds([])
     setForm({
       customerName: '',
       unitsSold: '',
@@ -393,8 +434,12 @@ export function SalesPageClient({
   function openEdit(sale: Sale) {
     setEditingSale(sale)
     setPickerOpen(false)
+    setVariantsForProduct([])
+    setAddonsForProduct([])
+    setSelectedVariantId(null)
+    setSelectedAddonIds([])
     if (sale.product_id && sale.product_name) {
-      setSaleSource({ kind: 'quick', productId: sale.product_id, productName: sale.product_name })
+      setSaleSource({ kind: 'quick', productId: sale.product_id, productName: sale.product_name, variantId: null })
     } else {
       setSaleSource(null)
     }
@@ -510,7 +555,7 @@ export function SalesPageClient({
       } else {
         const cogsQuick =
           saleSource.kind === 'quick' ? await computeAutoCogs(productId, units) : null
-        const { error } = await supabase.rpc('record_sale_with_batch', {
+        const { data: newSaleId, error } = await supabase.rpc('record_sale_with_batch', {
           p_business_id: businessId,
           p_product_id: productId,
           p_product_name: productName,
@@ -522,6 +567,10 @@ export function SalesPageClient({
           p_cogs_if_no_batch: cogsQuick,
         })
         if (error) throw error
+        // Attach variant if selected
+        if (newSaleId && selectedVariantId) {
+          await supabase.from('sales').update({ variant_id: selectedVariantId }).eq('id', newSaleId as string)
+        }
         trackEvent('sale_recorded', businessId, { units_sold: units, revenue: units * price })
         toast.success('Sale recorded!')
         const rev = units * price
@@ -666,13 +715,15 @@ export function SalesPageClient({
                                       setSaleSource({
                                         kind: 'batch',
                                         batchId: b.id,
-                                        productId: b.product_id,
+                                        productId: b.product_id!,
                                         productName: name,
                                         unitsRemaining: Number(b.units_remaining),
                                         unitsProduced: Number(b.units_produced),
                                         costOfGoods: b.cost_of_goods != null ? Number(b.cost_of_goods) : null,
                                         producedAt: b.produced_at,
+                                        variantId: null,
                                       })
+                                      loadVariantsAddons(b.product_id!)
                                       setPickerOpen(false)
                                     }}
                                   >
@@ -693,7 +744,9 @@ export function SalesPageClient({
                                     kind: 'quick',
                                     productId: p.id,
                                     productName: p.name,
+                                    variantId: null,
                                   })
+                                  loadVariantsAddons(p.id)
                                   setPickerOpen(false)
                                 }}
                               >
@@ -710,6 +763,67 @@ export function SalesPageClient({
                     cost.
                   </p>
                 </div>
+
+                {/* Variant picker */}
+                {variantsForProduct.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label className="text-sm text-gray-700">Which type?</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {variantsForProduct.map((v) => (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => setSelectedVariantId(selectedVariantId === v.id ? null : v.id)}
+                          className={cn(
+                            'px-3 py-1.5 rounded-full text-sm border transition-colors',
+                            selectedVariantId === v.id
+                              ? 'bg-amber-600 text-white border-amber-600'
+                              : 'bg-white text-gray-700 border-gray-300 hover:border-amber-400'
+                          )}
+                        >
+                          {v.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Add-on checkboxes */}
+                {addonsForProduct.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label className="text-sm text-gray-700">Any extras? (optional)</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {addonsForProduct.map((a) => {
+                        const checked = selectedAddonIds.includes(a.id)
+                        return (
+                          <button
+                            key={a.id}
+                            type="button"
+                            onClick={() =>
+                              setSelectedAddonIds(
+                                checked
+                                  ? selectedAddonIds.filter((id) => id !== a.id)
+                                  : [...selectedAddonIds, a.id]
+                              )
+                            }
+                            className={cn(
+                              'px-3 py-1.5 rounded-full text-sm border transition-colors',
+                              checked
+                                ? 'bg-amber-600 text-white border-amber-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-amber-400'
+                            )}
+                          >
+                            {a.name}
+                            {a.extra_cost != null && a.extra_cost > 0
+                              ? ` +${formatCurrency(a.extra_cost, currency)}`
+                              : ''}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <Label htmlFor="units" className="text-base">
                     How many?

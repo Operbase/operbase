@@ -36,6 +36,7 @@ import {
   formatCalendarDateInTimeZone,
   formatFriendlyDate,
 } from '@/lib/business-time'
+import { cn } from '@/lib/utils'
 import type {
   ProductionBatchRow,
   ProductionStockItemRow,
@@ -43,6 +44,9 @@ import type {
 
 type Batch = ProductionBatchRow
 type StockItemOption = ProductionStockItemRow
+
+type ProductVariantOption = { id: string; name: string; sort_order: number }
+type ProductWithVariants = { id: string; name: string; variants: ProductVariantOption[] }
 
 interface LineRow {
   itemId: string
@@ -91,6 +95,11 @@ export function ProductionPageClient({
   const [disposeTarget, setDisposeTarget] = useState<Batch | null>(null)
   const [disposeQty, setDisposeQty] = useState('')
   const [disposeSubmitting, setDisposeSubmitting] = useState(false)
+  const [productCatalog, setProductCatalog] = useState<ProductWithVariants[]>([])
+  const [variantsForProduct, setVariantsForProduct] = useState<ProductVariantOption[]>([])
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null)
+
+  const supabase = useMemo(() => createClient(), [])
 
   const fetchStockItems = useCallback(async () => {
     if (!businessId) return
@@ -237,9 +246,41 @@ export function ProductionPageClient({
     void fetchStockItems()
   }, [businessId, fetchBatches, fetchStockItems])
 
+  // Load product catalog (with variants) when dialog opens
+  useEffect(() => {
+    if (!dialogOpen || !businessId) return
+    void supabase
+      .from('products')
+      .select('id, name, product_variants(id, name, sort_order)')
+      .eq('business_id', businessId)
+      .order('name')
+      .then(({ data, error }) => {
+        if (error || !data) return
+        setProductCatalog(
+          (data as Record<string, unknown>[]).map((p) => ({
+            id: p.id as string,
+            name: p.name as string,
+            variants: ((p.product_variants as ProductVariantOption[] | null) ?? [])
+              .slice()
+              .sort((a, b) => a.sort_order - b.sort_order),
+          }))
+        )
+      })
+  }, [dialogOpen, businessId, supabase])
+
+  // When product name changes, load its variants
+  useEffect(() => {
+    const nameTrim = form.productName.trim().toLowerCase()
+    const found = productCatalog.find((p) => p.name.toLowerCase() === nameTrim)
+    setVariantsForProduct(found?.variants ?? [])
+    setSelectedVariantId(null)
+  }, [form.productName, productCatalog])
+
   function openAdd() {
     setEditingBatch(null)
     setLotOptionsByItem({})
+    setVariantsForProduct([])
+    setSelectedVariantId(null)
     setForm({
       productName: '',
       unitsProduced: '',
@@ -264,6 +305,8 @@ export function ProductionPageClient({
 
   function openEdit(batch: Batch) {
     setEditingBatch(batch)
+    setVariantsForProduct([])
+    setSelectedVariantId(null)
     setForm({
       productName: batch.product_name,
       unitsProduced: batch.units_produced.toString(),
@@ -365,6 +408,10 @@ export function ProductionPageClient({
 
         if (error) throw error
         if (!batchId) throw new Error('No batch id returned')
+        // Attach variant if selected
+        if (selectedVariantId) {
+          await client.from('batches').update({ variant_id: selectedVariantId }).eq('id', batchId as string)
+        }
         trackEvent('batch_created', businessId, { batch_id: batchId, units_produced: units })
         toast.success('Saved. Stock updated from what you used.')
       }
@@ -580,6 +627,31 @@ export function ProductionPageClient({
                     Type it the same way when you sell, so money and costs match up.
                   </p>
                 </div>
+
+                {/* Variant picker — only shows when the product has variants */}
+                {variantsForProduct.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label className="text-sm text-gray-700">Which type did you make?</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {variantsForProduct.map((v) => (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => setSelectedVariantId(selectedVariantId === v.id ? null : v.id)}
+                          className={cn(
+                            'px-3 py-1.5 rounded-full text-sm border transition-colors',
+                            selectedVariantId === v.id
+                              ? 'bg-amber-600 text-white border-amber-600'
+                              : 'bg-white text-gray-700 border-gray-300 hover:border-amber-400'
+                          )}
+                        >
+                          {v.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <Label className="text-base">How many did you make?</Label>
                   <WholeNumberChips
