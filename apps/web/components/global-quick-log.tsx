@@ -810,11 +810,11 @@ export function GlobalQuickLog() {
                   className="min-h-11"
                 />
 
-                {boughtForm.isNew && (
-                  <p className="text-xs text-gray-500">
-                    New ingredient — you can set up conversion ratios on the Stock page later.
-                  </p>
-                )}
+                <p className="text-xs text-gray-500">
+                  {boughtForm.isNew
+                    ? 'New ingredient — you can set up conversion ratios on the Stock page later.'
+                    : 'Enter only what arrived usable. If 2 eggs broke in the crate, enter 28 — the cost spreads across what you actually have.'}
+                </p>
 
                 <SaveButton onClick={() => void handleBoughtSave()} />
               </>

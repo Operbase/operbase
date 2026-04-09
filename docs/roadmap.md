@@ -138,7 +138,10 @@ The strategy is not to build a dedicated vertical per business type. The core en
 
 - Multi-user support  
 - Role-based access (basic)  
-- Improved reporting  
+- Improved reporting
+- **Purchase waste / damaged-on-arrival tracking** — when goods arrive partially damaged (e.g. 2 eggs broken in a crate of 30), record quantity received vs quantity usable, with the damaged units written off as a separate waste/shrinkage expense rather than absorbed into the remaining stock cost. Currently the app uses the simpler "enter only what arrived usable" approach (Option A), which is correct for most small businesses. Option B (split waste entry) is the upgrade path here.
+
+
 
 **Data focus:**
 
