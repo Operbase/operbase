@@ -34,19 +34,27 @@ export async function loadWeeklyStock(
 
   if (entriesError) throw entriesError
 
-  // 2. All items for the business (for names, units, and current qty)
-  const { data: itemsData, error: itemsError } = await supabase
-    .from('items')
-    .select(`
-      id, name, quantity_on_hand,
-      usage_unit:units!items_usage_unit_id_fkey (name)
-    `)
-    .eq('business_id', businessId)
-    .order('name')
+  // 2. All items for the business (names + units) + current qty from stock_levels view
+  const [itemsRes, stockRes] = await Promise.all([
+    supabase
+      .from('items')
+      .select('id, name, usage_unit:units!items_usage_unit_id_fkey (name)')
+      .eq('business_id', businessId)
+      .order('name'),
+    supabase
+      .from('stock_levels')
+      .select('item_id, quantity_on_hand')
+      .eq('business_id', businessId),
+  ])
 
-  if (itemsError) throw itemsError
+  if (itemsRes.error) throw itemsRes.error
+  if (stockRes.error) throw stockRes.error
 
-  const rows = itemsData ?? []
+  const stockMap = new Map(
+    (stockRes.data ?? []).map((s) => [s.item_id as string, Number(s.quantity_on_hand ?? 0)])
+  )
+
+  const rows = (itemsRes.data ?? []) as { id: string; name: string; usage_unit: { name?: string } | null }[]
   const entriesArr = entries ?? []
 
   // Aggregate weekly movements per item
@@ -71,7 +79,7 @@ export async function loadWeeklyStock(
     const id = item.id as string
     const added = addedMap.get(id) ?? 0
     const used = usedMap.get(id) ?? 0
-    const onHand = Number(item.quantity_on_hand ?? 0)
+    const onHand = stockMap.get(id) ?? 0
     const usageUnit = (item.usage_unit as { name?: string } | null)?.name ?? ''
 
     // Only include items that had movement this week, or are currently low/empty

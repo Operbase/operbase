@@ -572,7 +572,7 @@ export function ProductionPageClient({
               Record production
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-h-[90vh] overflow-y-auto max-w-lg overflow-hidden p-0">
+          <DialogContent className="max-h-[90vh] overflow-y-auto max-w-lg p-0">
             {/* Branded header */}
             <div className="px-6 pt-5 pb-4 sticky top-0 z-10" style={{ backgroundColor: 'var(--brand-light)', borderBottom: '1px solid var(--brand-mid)' }}>
               <DialogHeader>

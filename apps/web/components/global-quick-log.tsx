@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -23,7 +23,7 @@ type Tab = 'made' | 'sold' | 'bought' | 'gave'
 interface QuickLogEvent { tab?: Tab; productName?: string }
 interface Product     { id: string; name: string }
 interface Variant     { id: string; name: string }
-interface StockItem   { id: string; name: string; purchaseUnitId: string | null; purchaseUnitName: string }
+interface StockItem   { id: string; name: string; purchaseUnitId: string | null; purchaseUnitName: string; conversionRatio: number; usageUnitName: string }
 interface UnitOption  { id: string; name: string }
 interface BatchOption { id: string; label: string; unitsRemaining: number }
 
@@ -71,6 +71,11 @@ export function GlobalQuickLog() {
   const [variants,  setVariants]  = useState<Variant[]>([])
   const [batches,   setBatches]   = useState<BatchOption[]>([])
 
+  // Refs to avoid stale closures in event handler
+  const productsRef       = useRef<Product[]>([])
+  const skipVariantClear  = useRef(false)
+  useEffect(() => { productsRef.current = products }, [products])
+
   // Forms
   const [madeForm,   setMadeForm]   = useState(D_MADE)
   const [soldForm,   setSoldForm]   = useState(D_SOLD)
@@ -82,18 +87,21 @@ export function GlobalQuickLog() {
     if (!businessId) return
     void Promise.all([
       supabase.from('products').select('id, name').eq('business_id', businessId).eq('is_active', true).order('name'),
-      supabase.from('items').select('id, name, purchase_unit_id, purchase_unit:units!items_purchase_unit_id_fkey(id, name)').eq('business_id', businessId).order('name'),
+      supabase.from('items').select('id, name, purchase_unit_id, conversion_ratio, purchase_unit:units!items_purchase_unit_id_fkey(id, name), usage_unit:units!items_usage_unit_id_fkey(id, name)').eq('business_id', businessId).order('name'),
       supabase.from('units').select('id, name').order('name'),
     ]).then(([prodRes, itemRes, unitRes]) => {
       setProducts((prodRes.data ?? []) as Product[])
       setStockItems(
         (itemRes.data ?? []).map((i: Record<string, unknown>) => {
           const pu = i.purchase_unit as { id?: string; name?: string } | null
+          const uu = i.usage_unit as { id?: string; name?: string } | null
           return {
             id: i.id as string,
             name: i.name as string,
             purchaseUnitId: (i.purchase_unit_id as string | null) ?? null,
             purchaseUnitName: pu?.name ?? '',
+            conversionRatio: Number(i.conversion_ratio ?? 1),
+            usageUnitName: uu?.name ?? pu?.name ?? '',
           }
         })
       )
@@ -112,6 +120,10 @@ export function GlobalQuickLog() {
 
   // ── Clear variant / batch lists when tab changes ─────────────────────────────
   useEffect(() => {
+    if (skipVariantClear.current) {
+      skipVariantClear.current = false
+      return
+    }
     setVariants([])
     setBatches([])
   }, [tab])
@@ -123,14 +135,23 @@ export function GlobalQuickLog() {
       if (detail.tab) setTab(detail.tab)
       if (detail.productName) {
         const name = detail.productName
-        setMadeForm(f => ({ ...f, productName: name }))
-        setSoldForm(f => ({ ...f, productName: name }))
-        setGaveForm(f => ({ ...f, productName: name }))
+        const product = productsRef.current.find(
+          p => p.name.toLowerCase() === name.toLowerCase()
+        )
+        const productId = product?.id ?? null
+        setMadeForm(f => ({ ...f, productName: name, productId, variantId: null }))
+        setSoldForm(f => ({ ...f, productName: name, productId, variantId: null, batchId: null }))
+        setGaveForm(f => ({ ...f, productName: name, productId, variantId: null }))
+        if (productId) {
+          skipVariantClear.current = true
+          void loadVariants(productId)
+        }
       }
       setOpen(true)
     }
     window.addEventListener('operbase:quick-log', handler)
     return () => window.removeEventListener('operbase:quick-log', handler)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function resetForms() {
@@ -224,7 +245,8 @@ export function GlobalQuickLog() {
     if (match) {
       setBoughtForm(f => ({
         ...f, itemName: name, itemId: match.id,
-        purchaseUnitId: match.purchaseUnitId, purchaseUnitName: match.purchaseUnitName, isNew: false,
+        purchaseUnitId: match.purchaseUnitId, purchaseUnitName: match.purchaseUnitName,
+        isNew: false,
       }))
     } else {
       setBoughtForm(f => ({
@@ -726,12 +748,24 @@ export function GlobalQuickLog() {
                   className="min-h-11"
                 />
 
-                {/* Existing item: show resolved unit (read-only) */}
-                {!boughtForm.isNew && boughtForm.purchaseUnitName && (
-                  <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
-                    Buying in: <span className="font-semibold text-gray-700">{boughtForm.purchaseUnitName}</span>
-                  </p>
-                )}
+                {/* Existing item: show resolved unit with conversion hint */}
+                {!boughtForm.isNew && boughtForm.purchaseUnitName && (() => {
+                  const matchedItem = boughtForm.itemId ? stockItems.find(i => i.id === boughtForm.itemId) : null
+                  const ratio = matchedItem?.conversionRatio ?? 1
+                  const usageUnit = matchedItem?.usageUnitName ?? ''
+                  const qty = parseFloat(boughtForm.qty) || 0
+                  const showConversion = ratio > 1 && !!usageUnit && usageUnit !== boughtForm.purchaseUnitName
+                  return (
+                    <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                      Buying in <span className="font-semibold text-gray-700">{boughtForm.purchaseUnitName}</span>
+                      {showConversion && (
+                        qty > 0
+                          ? <> · {qty} {boughtForm.purchaseUnitName} = <span className="font-semibold text-gray-700">{qty * ratio} {usageUnit}</span> in stock</>
+                          : <> · 1 {boughtForm.purchaseUnitName} = {ratio} {usageUnit}</>
+                      )}
+                    </p>
+                  )
+                })()}
 
                 {/* New item: unit picker */}
                 {boughtForm.isNew && (

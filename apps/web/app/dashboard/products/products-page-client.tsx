@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useBusinessContext } from '@/providers/business-provider'
 import { formatCurrency } from '@/lib/format-currency'
@@ -282,7 +283,11 @@ export function ProductsPageClient({
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Products</h1>
           <p className="text-gray-600 mt-1">
-            What you sell, with types and extras.
+            What you make and sell — bread, cakes, pastries, etc.{' '}
+            <Link href="/dashboard/stock" className="underline font-medium" style={{ color: 'var(--brand)' }}>
+              Stock
+            </Link>{' '}
+            is where you manage the ingredients you buy.
           </p>
         </div>
         <Button
