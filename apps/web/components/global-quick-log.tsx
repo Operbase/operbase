@@ -18,7 +18,7 @@ import { formatCalendarDateInTimeZone, businessCalendarDateToIsoUtc } from '@/li
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type Tab = 'made' | 'sold' | 'bought' | 'gave'
+type Tab = 'made' | 'sold' | 'bought' | 'used' | 'gave'
 
 interface QuickLogEvent { tab?: Tab; productName?: string }
 interface Product     { id: string; name: string }
@@ -31,6 +31,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'made',   label: 'I made'      },
   { id: 'sold',   label: 'I sold'      },
   { id: 'bought', label: 'I bought'    },
+  { id: 'used',   label: 'I used'      },
   { id: 'gave',   label: 'I gave away' },
 ]
 
@@ -49,6 +50,12 @@ const D_BOUGHT = {
   itemName: '', itemId: null as string | null,
   purchaseUnitId: null as string | null, purchaseUnitName: '',
   isNew: false, qty: '', totalCost: '',
+  entryInUsageUnit: false, // when true, user enters in usage units (e.g. pieces), we convert to purchase units for the RPC
+}
+const D_USED = {
+  itemName: '', itemId: null as string | null, usageUnitName: '',
+  qty: '', note: '',
+  forProduct: '', // optional — which product was this used for
 }
 const D_GAVE = {
   productName: '', productId: null as string | null, variantId: null as string | null,
@@ -80,6 +87,7 @@ export function GlobalQuickLog() {
   const [madeForm,   setMadeForm]   = useState(D_MADE)
   const [soldForm,   setSoldForm]   = useState(D_SOLD)
   const [boughtForm, setBoughtForm] = useState(D_BOUGHT)
+  const [usedForm,   setUsedForm]   = useState(D_USED)
   const [gaveForm,   setGaveForm]   = useState(D_GAVE)
 
   // ── Load shared data when businessId is known ────────────────────────────────
@@ -158,6 +166,7 @@ export function GlobalQuickLog() {
     setMadeForm(D_MADE)
     setSoldForm(D_SOLD)
     setBoughtForm(D_BOUGHT)
+    setUsedForm(D_USED)
     setGaveForm(D_GAVE)
     setVariants([])
     setBatches([])
@@ -228,16 +237,21 @@ export function GlobalQuickLog() {
     else setGaveForm(f => ({ ...f, variantId }))
   }
 
-  // ── Stock item selection ("I bought") ────────────────────────────────────────
-  function selectStockItem(item: StockItem) {
-    setBoughtForm(f => ({
-      ...f,
-      itemName: item.name,
-      itemId: item.id,
-      purchaseUnitId: item.purchaseUnitId,
-      purchaseUnitName: item.purchaseUnitName,
-      isNew: false,
-    }))
+  // ── Stock item selection ("I bought" and "I used") ───────────────────────────
+  function selectStockItem(item: StockItem, formType: 'bought' | 'used' = 'bought') {
+    if (formType === 'used') {
+      setUsedForm(f => ({ ...f, itemName: item.name, itemId: item.id, usageUnitName: item.usageUnitName }))
+    } else {
+      setBoughtForm(f => ({
+        ...f,
+        itemName: item.name,
+        itemId: item.id,
+        purchaseUnitId: item.purchaseUnitId,
+        purchaseUnitName: item.purchaseUnitName,
+        isNew: false,
+        entryInUsageUnit: false,
+      }))
+    }
   }
 
   function handleItemNameChange(name: string) {
@@ -378,10 +392,20 @@ export function GlobalQuickLog() {
     if (!businessId) return
     const name = boughtForm.itemName.trim()
     if (!name) { toast.error('Enter what you bought'); return }
-    const qty = parseFloat(boughtForm.qty)
-    if (!qty || qty <= 0) { toast.error('Enter how much you bought'); return }
+    const enteredQty = parseFloat(boughtForm.qty)
+    if (!enteredQty || enteredQty <= 0) { toast.error('Enter how much you bought'); return }
     if (boughtForm.isNew && !boughtForm.purchaseUnitId) { toast.error('Select a unit'); return }
     const totalCost = parseFloat(boughtForm.totalCost) || 0
+
+    // If user entered in usage units (e.g. pieces), convert to purchase units for the RPC
+    const matchedItem = boughtForm.itemId ? stockItems.find(i => i.id === boughtForm.itemId) : null
+    const convRatio = matchedItem?.conversionRatio ?? 1
+    const purchaseQty = boughtForm.entryInUsageUnit && convRatio > 1
+      ? enteredQty / convRatio
+      : enteredQty
+    const displayUnit = boughtForm.entryInUsageUnit
+      ? (matchedItem?.usageUnitName ?? '')
+      : boughtForm.purchaseUnitName
 
     setIsSubmitting(true)
     try {
@@ -398,7 +422,7 @@ export function GlobalQuickLog() {
             purchase_unit_id:  boughtForm.purchaseUnitId,
             usage_unit_id:     boughtForm.purchaseUnitId,
             conversion_ratio:  1,
-            cost_per_unit:     qty > 0 && totalCost > 0 ? totalCost / qty : 0,
+            cost_per_unit:     purchaseQty > 0 && totalCost > 0 ? totalCost / purchaseQty : 0,
           })
           .select('id')
           .single()
@@ -409,14 +433,14 @@ export function GlobalQuickLog() {
       const { error } = await supabase.rpc('add_purchase_lot', {
         p_business_id:      businessId,
         p_item_id:          itemId,
-        p_purchase_qty:     qty,
+        p_purchase_qty:     purchaseQty,
         p_total_cost_paid:  totalCost,
         p_note:             'Quick add',
       })
       if (error) throw error
 
-      const unitLabel = boughtForm.purchaseUnitName ? ` ${boughtForm.purchaseUnitName}` : ''
-      toast.success(`Added ${qty}${unitLabel} of ${name} to stock.`)
+      const unitLabel = displayUnit ? ` ${displayUnit}` : ''
+      toast.success(`Added ${enteredQty}${unitLabel} of ${name} to stock.`)
       resetForms()
       setOpen(false)
     } catch (err) {
@@ -465,6 +489,45 @@ export function GlobalQuickLog() {
       if (dErr) throw dErr
 
       toast.success(`Saved. ${qty} ${name} marked as given away.`)
+      resetForms()
+      setOpen(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // ── Save: I used ──────────────────────────────────────────────────────────────
+  async function handleUsedSave() {
+    if (!businessId) return
+    const name = usedForm.itemName.trim()
+    if (!name) { toast.error('Enter what you used'); return }
+    const qty = parseFloat(usedForm.qty)
+    if (!qty || qty <= 0) { toast.error('Enter how much you used'); return }
+
+    const itemId = usedForm.itemId
+    if (!itemId) { toast.error('Select an ingredient from the list'); return }
+
+    setIsSubmitting(true)
+    try {
+      const noteParts = []
+      if (usedForm.forProduct.trim()) noteParts.push(`For: ${usedForm.forProduct.trim()}`)
+      if (usedForm.note.trim()) noteParts.push(usedForm.note.trim())
+      const noteText = noteParts.length > 0 ? noteParts.join(' · ') : 'Quick log'
+
+      const { error } = await supabase.from('stock_entries').insert({
+        business_id:    businessId,
+        item_id:        itemId,
+        quantity:       -qty,
+        cost_per_unit:  null,
+        source:         'manual_use',
+        note:           noteText,
+      })
+      if (error) throw error
+
+      const unitLabel = usedForm.usageUnitName ? ` ${usedForm.usageUnitName}` : ''
+      toast.success(`Logged ${qty}${unitLabel} of ${name} as used.`)
       resetForms()
       setOpen(false)
     } catch (err) {
@@ -748,22 +811,34 @@ export function GlobalQuickLog() {
                   className="min-h-11"
                 />
 
-                {/* Existing item: show resolved unit with conversion hint */}
+                {/* Existing item: unit toggle if purchase ≠ usage unit */}
                 {!boughtForm.isNew && boughtForm.purchaseUnitName && (() => {
                   const matchedItem = boughtForm.itemId ? stockItems.find(i => i.id === boughtForm.itemId) : null
                   const ratio = matchedItem?.conversionRatio ?? 1
                   const usageUnit = matchedItem?.usageUnitName ?? ''
-                  const qty = parseFloat(boughtForm.qty) || 0
-                  const showConversion = ratio > 1 && !!usageUnit && usageUnit !== boughtForm.purchaseUnitName
+                  const hasTwoUnits = ratio > 1 && !!usageUnit && usageUnit !== boughtForm.purchaseUnitName
                   return (
-                    <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
-                      Buying in <span className="font-semibold text-gray-700">{boughtForm.purchaseUnitName}</span>
-                      {showConversion && (
-                        qty > 0
-                          ? <> · {qty} {boughtForm.purchaseUnitName} = <span className="font-semibold text-gray-700">{qty * ratio} {usageUnit}</span> in stock</>
-                          : <> · 1 {boughtForm.purchaseUnitName} = {ratio} {usageUnit}</>
-                      )}
-                    </p>
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 mb-1.5">Enter quantity in</p>
+                      <div className="flex gap-2">
+                        <button type="button"
+                          className="flex-1 px-3 py-2 rounded-lg text-sm border transition-colors"
+                          style={activeChipStyle(!boughtForm.entryInUsageUnit)}
+                          onClick={() => setBoughtForm(f => ({ ...f, entryInUsageUnit: false }))}>
+                          {boughtForm.purchaseUnitName}
+                          {hasTwoUnits && <span className="block text-xs opacity-70">as purchased</span>}
+                        </button>
+                        {hasTwoUnits && (
+                          <button type="button"
+                            className="flex-1 px-3 py-2 rounded-lg text-sm border transition-colors"
+                            style={activeChipStyle(boughtForm.entryInUsageUnit)}
+                            onClick={() => setBoughtForm(f => ({ ...f, entryInUsageUnit: true }))}>
+                            {usageUnit}
+                            <span className="block text-xs opacity-70">individual</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   )
                 })()}
 
@@ -795,9 +870,13 @@ export function GlobalQuickLog() {
 
                 <Input
                   type="number" inputMode="decimal"
-                  placeholder={boughtForm.purchaseUnitName
-                    ? `Quantity (${boughtForm.purchaseUnitName})`
-                    : 'Quantity bought'}
+                  placeholder={(() => {
+                    if (boughtForm.entryInUsageUnit) {
+                      const m = boughtForm.itemId ? stockItems.find(i => i.id === boughtForm.itemId) : null
+                      return `Quantity (${m?.usageUnitName ?? 'units'})`
+                    }
+                    return boughtForm.purchaseUnitName ? `Quantity (${boughtForm.purchaseUnitName})` : 'Quantity bought'
+                  })()}
                   value={boughtForm.qty}
                   onChange={e => setBoughtForm(f => ({ ...f, qty: e.target.value }))}
                   className="min-h-11"
@@ -817,6 +896,75 @@ export function GlobalQuickLog() {
                 </p>
 
                 <SaveButton onClick={() => void handleBoughtSave()} />
+              </>
+            )}
+
+            {/* ── I used ──────────────────────────────────────────────────────── */}
+            {tab === 'used' && (
+              <>
+                {stockItems.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {stockItems.slice(0, 6).map(item => (
+                      <button key={item.id} type="button"
+                        onClick={() => selectStockItem(item, 'used')}
+                        className="px-2.5 py-1 rounded-lg text-sm border transition-colors"
+                        style={activeChipStyle(usedForm.itemId === item.id)}>
+                        {item.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <Input
+                  placeholder="What ingredient did you use?"
+                  value={usedForm.itemName}
+                  onChange={e => {
+                    const name = e.target.value
+                    const match = stockItems.find(i => i.name.toLowerCase() === name.toLowerCase())
+                    if (match) {
+                      setUsedForm(f => ({ ...f, itemName: name, itemId: match.id, usageUnitName: match.usageUnitName }))
+                    } else {
+                      setUsedForm(f => ({ ...f, itemName: name, itemId: null, usageUnitName: '' }))
+                    }
+                  }}
+                  className="min-h-11"
+                />
+
+                <Input
+                  type="number" inputMode="decimal"
+                  placeholder={usedForm.usageUnitName ? `Quantity (${usedForm.usageUnitName})` : 'How much?'}
+                  value={usedForm.qty}
+                  onChange={e => setUsedForm(f => ({ ...f, qty: e.target.value }))}
+                  className="min-h-11"
+                />
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    What was this for? <span className="font-normal text-gray-400">(optional)</span>
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {products.slice(0, 5).map(p => (
+                      <button key={p.id} type="button"
+                        onClick={() => setUsedForm(f => ({ ...f, forProduct: f.forProduct === p.name ? '' : p.name }))}
+                        className="px-2.5 py-1 rounded-lg text-sm border transition-colors"
+                        style={activeChipStyle(usedForm.forProduct === p.name)}>
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                  <Input
+                    placeholder="Or type a product / reason"
+                    value={usedForm.forProduct}
+                    onChange={e => setUsedForm(f => ({ ...f, forProduct: e.target.value }))}
+                    className="min-h-11"
+                  />
+                </div>
+
+                <p className="text-xs text-gray-500">
+                  This deducts directly from stock. Use this for samples, testing, or any use not tied to a full production run.
+                </p>
+
+                <SaveButton onClick={() => void handleUsedSave()} />
               </>
             )}
 
