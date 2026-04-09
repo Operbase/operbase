@@ -23,6 +23,7 @@ For the full product vision and phase plan, see `roadmap.md`.
 | Product add-ons | `product_addons` table; shown in product catalog for user reference. |
 | Per-product / per-variant margin | Products page shows: avg cost/unit, profit/unit, margin pill (green ≥50%, amber 25–49%, red <25%). Computed from real batch runs only. |
 | Insights page | Period selector (this month / last month / last 3 months / all time). KPI cards (revenue, production cost, gross profit, margin). Smart insight cards (danger/warning/good/action/info). Per-product breakdown with expandable variant rows. Inline "what to do" prompts when data is missing. |
+| "What happened today?" inline log | **Cards** on the home page (3 action cards) and a **bar** strip on every other dashboard page. Three flows: I bought, I made, I sold. Multi-step "I made" flow: step 1 = product + qty, step 2 = "did you sell any?" option cards, step 3 = price + qty if yes. Profit feedback with large number + emotional tone. Profit memory in localStorage (`wh_profit_{businessId}`): tracks last/best profit and shows "🔥 Your best sale yet!" or "Better than your last sale." Soft assistant voice (one suggestion per action). |
 | Global Quick Log | Floating + FAB. Tabs: **I made**, **I sold**, **I bought**, **I used**, **I gave away**. Pre-fills product from page context events. |
 | Quick Log — I made | Creates production batch. Optional "some were sold right away" checkbox to record a sale simultaneously. |
 | Quick Log — I sold | Logs a sale with optional batch linkage. |

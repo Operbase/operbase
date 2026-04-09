@@ -4,7 +4,17 @@ This guide explains how to use Operbase step by step. It is written in plain Eng
 
 ---
 
-## Before you start
+## The quickest way to log anything
+
+Every page has a **"Log:"** bar at the top with three buttons: **I bought**, **I made**, **I sold**.
+
+Tap any of them. A dialog opens with plain-English prompts. When you save, the result screen shows you how much money came in (or how much you kept as profit). After a few sales, it will start remembering your best result and tell you when you beat it.
+
+You do not need to go to the Stock, Production, or Sales pages for everyday logging — this bar is the fastest path.
+
+---
+
+## Before you start (first time setup)
 
 Operbase works best when you follow this order the first time:
 
@@ -114,6 +124,42 @@ This shows every ingredient that moved this week:
 Go to **Sales** → click the arrow on any sale in the table → see cost, money in, and profit for that sale.
 
 Tap **See daily breakdown** to see revenue per day.
+
+---
+
+## How to use the "What happened today?" log
+
+The **Log bar** at the top of every page (and the three cards on the home page) is the fastest way to record your day.
+
+### I bought
+
+Tap **I bought**. Enter:
+- What you bought (type freely or pick from your existing stock)
+- How many you got
+- How much you paid (optional)
+
+After saving, the screen shows how much you now have in stock and a nudge toward your next production run.
+
+### I made
+
+Tap **I made**. Two steps:
+
+**Step 1**: Enter the product name and how many you made. Tap **Next →**.
+
+**Step 2**: "Did you sell any right away?"
+- Tap **💰 Yes, I sold some** → enter how many and the price each → Save.
+- Tap **⏰ No, not yet** → saves the production run immediately.
+
+The result screen shows profit (if you sold) or motivates you to sell while fresh.
+
+### I sold
+
+Tap **I sold**. Enter:
+- What you sold
+- How many
+- Price per item
+
+The result screen shows how much you kept as profit. After a few sales, it will tell you when you beat your best sale.
 
 ---
 

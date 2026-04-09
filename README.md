@@ -13,15 +13,18 @@ Multi-tenant operations platform for small businesses. The first vertical is bak
 
 ## What’s in the app
 
-- **Marketing site** — `/` is a **static-friendly landing page** for visitors (`components/landing/`). **Signed-in users are redirected to `/dashboard`** by middleware so they never see the marketing home.
-- **Supabase** — Browser and server clients (`apps/web/lib/supabase/`), session refresh via middleware.
-- **Authentication** — Email/password and Google sign-in on login; sign-up with validation; auth callback route; protected dashboard routes.
-- **Onboarding** — After first login: create a business, set branding (logo URL, brand color), choose business type and currency; links the user to the business.
+- **Marketing site** — `/` landing page for visitors. Signed-in users are redirected to `/dashboard` by middleware.
+- **Authentication** — Email/password and Google sign-in; strong password validation; auth callback route; protected dashboard routes.
+- **Onboarding** — Create a business, set branding (logo, brand color), choose business type and currency.
 - **Dashboard**
-  - **Stock** — Items with purchase vs usage units, conversion ratio, cost per usage unit; restock in purchase units; low-stock thresholds.
-  - **Production** — Batches with ingredient/packaging lines; stock deductions and batch cost via `create_production_batch` RPC; safe delete restores stock.
-  - **Sales** — Optional batch link for COGS; gross profit; charts.
-  - **Summary** — Revenue, COGS, profit, alerts, monthly spend by item (RPC).
+  - **"What happened today?" bar** — three-tap inline quick-log (I bought / I made / I sold) pinned to every dashboard page. Shows profit feedback with emotional tone; remembers your best sale via localStorage.
+  - **Stock** — Ingredients + packaging with purchase/usage unit conversion and FIFO purchase lots. Low-stock thresholds.
+  - **Production** — Runs with optional ingredient tracking; FIFO stock deduction; cost of goods; dispose units (given out, spoiled, didn’t sell).
+  - **Sales** — Optional batch linkage for exact COGS; quick sale falls back to weighted average cost; gross profit per sale.
+  - **Products** — Catalog with variants and add-ons; sale price, avg production cost, profit/unit, margin % per product and variant.
+  - **Insights** — Period-filtered revenue, production cost, gross profit, margin; smart insight cards; per-product/variant breakdown.
+  - **Global Quick Log** — Floating FAB: I made, I sold, I bought, I used, I gave away.
+  - **Dashboard home** — Today’s profit, at-risk unsold items, money in/kept cards, monthly spend chart, rule-based AI assistant.
 
 For file-level pointers, conventions, middleware behavior, and **caveats about the landing page** (it was inspired by a reference export but **not implemented as a pixel-perfect copy** — see “Marketing landing page”), read [`docs/AGENTS.md`](./docs/AGENTS.md). Product phases, scope, and internal API direction: [`docs/roadmap.md`](./docs/roadmap.md). A short entry point for tools that expect a root file: [`AGENTS.md`](./AGENTS.md).
 
@@ -63,13 +66,13 @@ operbase/
 
 3. **Database**
 
-   Run these in order on your Supabase project (SQL editor or CLI):
+   Push all migrations to your Supabase project (CLI preferred):
 
-   1. `packages/supabase/migrations/20260403000000_init_schema.sql`
-   2. `packages/supabase/migrations/20260403000001_create_business_rpc.sql`
-   3. `packages/supabase/migrations/20260403000002_bakery_business_logic.sql` (batch RPCs, item units, spend insights)
+   ```bash
+   cd packages/supabase && supabase db push
+   ```
 
-   Then `packages/supabase/seed/units.sql` for the units lookup table.
+   Or run each file in `packages/supabase/migrations/` in order (000000 → 000020), then `packages/supabase/seed/units.sql`. See `docs/AGENTS.md` for the full ordered list.
 
 4. **Run the app**
 
