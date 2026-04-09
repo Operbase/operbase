@@ -56,6 +56,14 @@ export function DashboardHomeClient({
     }
   }, [businessId])
 
+  const monthLabel = useMemo(() => {
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'long',
+      year: 'numeric',
+      timeZone: timezone,
+    }).format(new Date())
+  }, [timezone])
+
   const neverHadSale = metricsLifetime.totalSales === 0
   const profitToday = todayMetrics.grossProfit
   const hadSalesToday = todayMetrics.totalSales > 0
@@ -320,7 +328,7 @@ export function DashboardHomeClient({
 
       {monthlySpend.length > 0 && (
         <details className="rounded-2xl border border-gray-200/80 bg-white px-5 py-3.5 text-sm shadow-sm">
-          <summary className="cursor-pointer font-medium text-gray-700 select-none">More details: what you spent this month</summary>
+          <summary className="cursor-pointer font-medium text-gray-700 select-none">More details: what you spent in {monthLabel}</summary>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

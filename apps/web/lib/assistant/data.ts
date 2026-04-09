@@ -47,29 +47,41 @@ export async function getCurrentStock(
   supabase: SupabaseClient,
   businessId: string
 ): Promise<StockRow[]> {
-  const { data, error } = await supabase
-    .from('items')
-    .select('name, quantity_on_hand, low_stock_threshold, usage_unit:units!items_usage_unit_id_fkey(name)')
-    .eq('business_id', businessId)
-    .order('name')
+  const [itemsRes, stockRes] = await Promise.all([
+    supabase
+      .from('items')
+      .select('id, name, low_stock_threshold, usage_unit:units!items_usage_unit_id_fkey(name)')
+      .eq('business_id', businessId)
+      .order('name'),
+    supabase
+      .from('stock_levels')
+      .select('item_id, quantity_on_hand')
+      .eq('business_id', businessId),
+  ])
 
-  if (error) throw error
+  if (itemsRes.error) throw itemsRes.error
+  if (stockRes.error) throw stockRes.error
 
-  const rows = (data ?? []) as unknown as {
+  const stockMap = new Map(
+    (stockRes.data ?? []).map((s) => [s.item_id as string, Number(s.quantity_on_hand ?? 0)])
+  )
+
+  const rows = (itemsRes.data ?? []) as unknown as {
+    id: string
     name: string
-    quantity_on_hand: number
     low_stock_threshold: number | null
     usage_unit: { name: string } | null
   }[]
 
-  return rows.map((r) => ({
-    name: r.name,
-    onHand: Number(r.quantity_on_hand ?? 0),
-    unitName: (r.usage_unit as { name?: string } | null)?.name ?? '',
-    isLow:
-      r.quantity_on_hand <= 0 ||
-      (r.low_stock_threshold != null && r.quantity_on_hand <= r.low_stock_threshold),
-  }))
+  return rows.map((r) => {
+    const qty = stockMap.get(r.id) ?? 0
+    return {
+      name: r.name,
+      onHand: qty,
+      unitName: (r.usage_unit as { name?: string } | null)?.name ?? '',
+      isLow: qty <= 0 || (r.low_stock_threshold != null && qty <= r.low_stock_threshold),
+    }
+  })
 }
 
 export async function getWeeklyUsage(
