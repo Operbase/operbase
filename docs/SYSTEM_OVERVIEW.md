@@ -74,7 +74,39 @@ Operbase helps small business owners (starting with bakeries) answer three quest
 
 ---
 
-### 4. Dashboard
+### 4. Products
+
+**What it is**: The catalog of finished goods the business sells.
+
+**How it works**:
+- Each product has a name, sale price, optional variants (e.g. Regular / Large), and optional add-ons (e.g. Extra Icing).
+- The system computes **avg production cost per unit** from real batch runs: `total cost_of_goods ÷ total units_produced` across all runs for that product/variant.
+- **Profit per unit** = sale price − avg cost. **Margin** = (profit ÷ sale price) × 100.
+- A **MarginPill** shows green (≥50%), amber (25–49%), or red (<25%).
+- ⓘ tooltips on every financial metric explain the formula in plain English.
+
+**Key database tables**: `products`, `product_variants`, `product_addons`
+
+**Key code file**: `apps/web/app/dashboard/products/products-page-client.tsx`, `apps/web/lib/dashboard/products-data.ts`
+
+---
+
+### 5. Insights
+
+**What it is**: A performance summary showing revenue, cost, margin, and smart observations.
+
+**How it works**:
+- Period selector: This month / Last month / Last 3 months / All time. Bounds are computed in the business's IANA timezone.
+- **KPI cards**: Revenue, Production cost, Gross profit, Margin %.
+- **Insight cards** (up to 6, prioritized): danger (selling below cost), warning (thin margin, high waste), good (best earner), action (missing prices, no ingredient tracking), info (unsold stock cost).
+- **Per-product breakdown**: sale price, avg cost/unit, profit/unit, revenue, waste rate. Expandable variant rows. Inline "what to do" prompts when data is missing.
+- Data layer in `lib/dashboard/insights-data.ts` — fetches sales + batches + products in parallel, aggregates using the same `productId::variantId` key pattern as the rest of the cost system.
+
+**Key code files**: `apps/web/app/dashboard/insights/insights-page-client.tsx`, `apps/web/lib/dashboard/insights-data.ts`
+
+---
+
+### 6. Dashboard
 
 **What it is**: A summary of how the business is doing today.
 
@@ -87,6 +119,23 @@ Operbase helps small business owners (starting with bakeries) answer three quest
 - **AI assistant**: keyword-based Q&A (stock levels, weekly usage, today's profit/sales)
 
 **Key code file**: `apps/web/app/dashboard/dashboard-home-client.tsx`
+
+---
+
+### 7. Global Quick Log
+
+**What it is**: A floating **+** button (bottom-right) that opens a modal for logging anything quickly without navigating away from the current page.
+
+**Tabs**:
+- **I made** — creates a production batch. Optional "sold some right away" checkbox.
+- **I sold** — records a sale. Optional batch linkage.
+- **I bought** — restocks an ingredient via `add_purchase_lot`. Free unit selector: purchase unit, usage unit (with live conversion hint), or any other unit (with a custom conversion field for units like crate).
+- **I used** — depletes stock directly (`stock_entries`, `source = 'manual_use'`). For stock not tied to a full production run.
+- **I gave away** — shows a reason picker (Sample/gift, Couldn't sell, Spoiled), date-matched production run, and calls `dispose_batch_units`. Does not create a fake batch.
+
+**Context events**: Pages can fire `window.dispatchEvent(new CustomEvent('operbase:quick-log', { detail: { tab, productName } }))` to pre-fill the modal and open it to a specific tab.
+
+**Key code file**: `apps/web/components/global-quick-log.tsx`
 
 ---
 
@@ -137,10 +186,14 @@ apps/web/
       stock-page-client.tsx        Stock UI
     products/
       page.tsx                     Products server component
-      products-page-client.tsx     Products UI (wizard)
+      products-page-client.tsx     Products UI: wizard, margins, variants, add-ons
+    insights/
+      page.tsx                     Insights server component (loads this_month by default)
+      insights-page-client.tsx     Insights UI: period selector, KPIs, insight cards, per-product
   components/
+    global-quick-log.tsx           Floating + FAB: I made / I sold / I bought / I used / I gave away
     dashboard-brand-css.tsx        CSS variable injection for theming
-    dashboard-layout.tsx           Shell layout with sidebar
+    dashboard-layout.tsx           Shell layout with sidebar nav
     business-assistant.tsx         AI assistant widget
   lib/
     assistant/
@@ -153,10 +206,13 @@ apps/web/
       sales-data.ts                Sales data types and queries
       stock-data.ts                Stock data types and queries
       weekly-stock-data.ts         Weekly stock movement calculator
+      products-data.ts             Product catalog with avg cost and run counts
+      insights-data.ts             Insights aggregation: period bounds, insight cards, overview
     bakery/
       cost.ts                      Cost math helpers
       per-product-cogs.ts          Per-product weighted average cost
-packages/supabase/migrations/      All SQL migrations (run in order)
+packages/supabase/migrations/      All SQL migrations (run in order, 00000–00020)
+packages/supabase/seed/units.sql   Unit seed: weight, volume, count units including crate/tray/box
 ```
 
 ---

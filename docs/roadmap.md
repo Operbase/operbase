@@ -65,25 +65,32 @@ The strategy is not to build a dedicated vertical per business type. The core en
 
 ## 3. Phased Roadmap
 
-### Phase 1 — Bakery OS MVP ✅ (current)
+### Phase 1 — Bakery OS MVP ✅ (shipped)
 
 **Goal:** Real usage, simplicity  
 
-**Features:**
+**Features shipped:**
 
-- Stock (ingredients + packaging)  
-- Unit conversion (e.g. paint → cups, purchase → recipe units)  
-- Batch production  
-- Sales tracking  
-- Profit dashboard  
+- Stock (ingredients + packaging) with unit conversion (purchase → usage) and FIFO lot costing
+- Common count units: gram, kilogram, pound, cup, litre, piece, dozen, bag, crate, tray, box, and more
+- Production runs with optional ingredient tracking and FIFO stock deduction
+- Dispose batch units: given away, couldn't sell, spoiled — with reason tracking
+- Sales with optional batch linkage and per-product COGS
+- Product catalog with variants, add-ons, sale price, avg cost, profit/unit, and margin %
+- Insights page: revenue, production cost, gross profit, margin, smart insight cards, per-product breakdown
+- Global Quick Log (floating + FAB): I made, I sold, I bought, I used, I gave away
+- Dashboard: today's profit, at-risk unsold items, quick actions
+- Brand theming, multi-tenant RLS, business timezone support
+- Rule-based AI assistant (no external API)
 
 **Data focus:**
 
-- Cost per unit  
-- Cost per batch  
-- Profit per day / week / month  
+- Cost per unit (ingredient level, FIFO lot-accurate)
+- Cost per batch (exact ingredient cost via lot allocations)
+- Profit per product and per variant
+- Margin % with inline smart insights
 
-**Status:** Shipped in app + DB. Business currency at onboarding drives display.
+**Status:** Fully shipped. Business currency and timezone at onboarding drive all display and calculations.
 
 ---
 
@@ -489,16 +496,18 @@ Endpoints:
 
 ---
 
-#### 5. Insights Service (Future)
+#### 5. Insights Service
 
-Handles: analytics, trends  
+Handles: analytics, trends, margin intelligence
 
-Endpoints:
+Endpoints / data functions:
 
-- `getMonthlyInsights`  
-- `getItemSpendBreakdown`  
+- `loadInsightsData` — period-filtered aggregation of revenue, COGS, profit, margin, waste, by product + variant
+- `buildInsightCards` — rule-based insight generation (danger/warning/good/action/info)
+- `getPeriodBounds` — converts period enum to UTC bounds respecting business timezone
+- `getItemSpendBreakdown` — monthly ingredient spend (existing RPC)
 
-**Status:** Planned; partial spend insight exists via RPC + charts.
+**Status:** Core layer live (`lib/dashboard/insights-data.ts`). Insights page at `/dashboard/insights` ships period selector, KPI cards, smart insight cards, and per-product/variant breakdown. AI-powered narratives (Phase 7) build on top of this foundation.
 
 ---
 
