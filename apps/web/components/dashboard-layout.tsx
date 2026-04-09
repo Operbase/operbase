@@ -209,7 +209,7 @@ function DashboardLayoutInner({ children, userEmail, userName }: DashboardLayout
 
   return (
     <div className="flex h-screen bg-gray-50" data-dashboard style={brandStyle}>
-      <DashboardBrandCss />
+      <DashboardBrandCss brandColor={brandColor} />
       {/* Desktop sidebar */}
       <aside className="hidden md:flex flex-col w-64 bg-white shadow-sm border-r">
         {Sidebar}

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { GettingStartedHelper } from '@/components/getting-started-helper'
+import { BusinessAssistant } from '@/components/business-assistant'
 import { AlertCircle, ChefHat, Package, ShoppingBag } from 'lucide-react'
 import { useBusinessContext } from '@/providers/business-provider'
 import { formatCurrency } from '@/lib/format-currency'
@@ -132,14 +133,18 @@ export function DashboardHomeClient({
           <CardContent className="pt-8 pb-8 px-6 text-center space-y-4">
             <p className="text-xl font-semibold text-gray-900">Log a first sale to see how you did</p>
             <p className="text-sm text-gray-600 max-w-md mx-auto leading-relaxed">
-              Add what you buy, record what you make, then tap Sell items when money comes in.
+              Start by adding your stock (the ingredients you buy), then record a production run when you bake,
+              and finally log a sale when money comes in. Each step only takes a minute.
             </p>
             <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-3 pt-2">
               <Button asChild size="lg" className="min-h-12 text-base bg-amber-600 hover:bg-amber-700">
-                <Link href="/dashboard/sales">Sell items</Link>
+                <Link href="/dashboard/stock">1. Add stock</Link>
               </Button>
               <Button asChild size="lg" variant="outline" className="min-h-12 text-base">
-                <Link href="/dashboard/stock">Add stock</Link>
+                <Link href="/dashboard/production">2. Record a run</Link>
+              </Button>
+              <Button asChild size="lg" variant="outline" className="min-h-12 text-base">
+                <Link href="/dashboard/sales">3. Log a sale</Link>
               </Button>
             </div>
           </CardContent>
@@ -186,7 +191,7 @@ export function DashboardHomeClient({
                 <strong className="tabular-nums text-amber-950">{atRisk.itemsLeft}</strong> items on hand.
               </p>
               <p className="text-2xl font-bold tabular-nums text-gray-900">
-                {formatCurrency(atRisk.moneyTiedUp, currency)} is still tied up in those items.
+                {formatCurrency(atRisk.moneyTiedUp, currency)} in ingredient cost sitting in those unsold items.
               </p>
               <p className="text-sm font-medium text-amber-900 bg-amber-100/80 rounded-lg px-3 py-2 border border-amber-200">
                 If they do not sell, you lose this money.
@@ -195,29 +200,29 @@ export function DashboardHomeClient({
                 <Button
                   asChild
                   size="lg"
-                  className="min-h-12 text-base flex-1 bg-green-600 hover:bg-green-700"
+                  className="min-h-12 text-base flex-1 bg-amber-600 hover:bg-amber-700"
                 >
                   <Link href="/dashboard/sales">Sell now</Link>
                 </Button>
                 <Button asChild size="lg" variant="outline" className="min-h-12 text-base flex-1 bg-white">
-                  <Link href="/dashboard/production#production-batches">What happened to the rest?</Link>
+                  <Link href="/dashboard/production#production-batches">Record giveaway or loss</Link>
                 </Button>
               </div>
             </CardContent>
           </Card>
         </section>
       ) : !neverHadSale ? (
-        <Card className="border-green-200 bg-green-50/40">
+        <Card className="border-amber-200 bg-amber-50/40">
           <CardContent className="py-5 px-5">
-            <p className="font-medium text-green-900">Nothing left waiting — you cleared the shelf.</p>
-            <p className="text-sm text-green-800/90 mt-1">Great time to record another batch when you bake.</p>
+            <p className="font-medium text-amber-900">Nothing left waiting — you cleared the shelf.</p>
+            <p className="text-sm text-amber-800/90 mt-1">Great time to record a new run when you bake.</p>
           </CardContent>
         </Card>
       ) : null}
 
       {/* 3 — Quick actions */}
       <section aria-label="Quick actions">
-        <p className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-3">Do this next</p>
+        <p className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-3">Quick actions</p>
         <div className="flex flex-col gap-3">
           <Button
             asChild
@@ -226,7 +231,7 @@ export function DashboardHomeClient({
           >
             <Link href="/dashboard/production">Record production</Link>
           </Button>
-          <Button asChild size="lg" variant="default" className="w-full min-h-14 text-lg justify-center bg-green-600 hover:bg-green-700">
+          <Button asChild size="lg" variant="default" className="w-full min-h-14 text-lg justify-center bg-amber-600 hover:bg-amber-700">
             <Link href="/dashboard/sales">Sell items</Link>
           </Button>
           <Button asChild size="lg" variant="outline" className="w-full min-h-14 text-lg justify-center border-2">
@@ -239,34 +244,45 @@ export function DashboardHomeClient({
       {!neverHadSale ? (
         <section aria-label="Today summary">
           <p className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-3">Today in numbers</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <Card>
               <CardHeader className="pb-1">
-                <CardTitle className="text-sm font-medium text-gray-600">Made today</CardTitle>
+                <CardTitle className="text-sm font-medium text-gray-600">Made</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-3xl font-bold tabular-nums">{dailyTotals.madeToday}</p>
-                <p className="text-xs text-gray-500 mt-1">Items you finished</p>
+                <p className="text-xs text-gray-500 mt-1">items</p>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-1">
-                <CardTitle className="text-sm font-medium text-gray-600">Sold today</CardTitle>
+                <CardTitle className="text-sm font-medium text-gray-600">Sold</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-3xl font-bold tabular-nums text-green-700">{dailyTotals.soldUnitsToday}</p>
-                <p className="text-xs text-gray-500 mt-1">Items you rang up</p>
+                <p className="text-xs text-gray-500 mt-1">items</p>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-1">
-                <CardTitle className="text-sm font-medium text-gray-600">Lost (so far)</CardTitle>
+                <CardTitle className="text-sm font-medium text-gray-600">Money in</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold tabular-nums text-gray-600">
-                  {dailyTotals.lostUnitsLifetime}
+                <p className="text-2xl font-bold tabular-nums text-green-700">
+                  {formatCurrency(todayMetrics.totalRevenue, currency)}
                 </p>
-                <p className="text-xs text-gray-500 mt-1">Given away or did not sell, all time</p>
+                <p className="text-xs text-gray-500 mt-1">from sales</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-1">
+                <CardTitle className="text-sm font-medium text-gray-600">You kept</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className={`text-2xl font-bold tabular-nums ${todayMetrics.grossProfit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  {formatCurrency(todayMetrics.grossProfit, currency)}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">after costs</p>
               </CardContent>
             </Card>
           </div>
@@ -327,6 +343,8 @@ export function DashboardHomeClient({
           </div>
         </details>
       )}
+
+      <BusinessAssistant />
 
       {/* Compact links — icons optional for scan */}
       <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100">

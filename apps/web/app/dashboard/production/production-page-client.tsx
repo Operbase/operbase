@@ -153,7 +153,7 @@ export function ProductionPageClient({
         if (error.code === '42P01' || error.message?.includes('purchase_lots')) {
           return
         }
-        toast.error(friendlyError(error, 'Could not load stock batches'))
+        toast.error(friendlyError(error, 'Could not load your production runs'))
         return
       }
       setLotOptionsByItem((prev) => ({
@@ -205,7 +205,7 @@ export function ProductionPageClient({
         return {
           id,
           product_id: (b.product_id as string | null) ?? null,
-          product_name: products?.name ?? notes ?? 'Unnamed batch',
+          product_name: products?.name ?? notes ?? 'Unnamed run',
           units_produced: Number(b.units_produced),
           units_remaining: Number(b.units_remaining),
           units_given_away:
@@ -374,7 +374,7 @@ export function ProductionPageClient({
       })
       if (productErr) throw productErr
       if (!productId || typeof productId !== 'string') {
-        toast.error('Could not save the product for this batch. Try again.')
+        toast.error('Could not save the product for this run. Try again.')
         return
       }
 
@@ -393,7 +393,7 @@ export function ProductionPageClient({
           .eq('id', editingBatch.id)
 
         if (error) throw error
-        toast.success('Batch updated!')
+        toast.success('Run updated!')
       } else {
         const { data: batchId, error } = await client.rpc('create_production_batch', {
           p_business_id: businessId,
@@ -420,14 +420,14 @@ export function ProductionPageClient({
       fetchBatches()
       fetchStockItems()
     } catch (error: unknown) {
-      toast.error(friendlyError(error, 'Failed to save batch'))
+      toast.error(friendlyError(error, 'Failed to save your run'))
     } finally {
       setIsSubmitting(false)
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this batch? Stock from ingredients will be restored if applicable.')) return
+    if (!confirm('Delete this run? Stock from ingredients will be restored.')) return
 
     const batch = batches.find((b) => b.id === id)
     const client = createClient()
@@ -439,7 +439,7 @@ export function ProductionPageClient({
       toast.error(friendlyError(error))
       return
     }
-    toast.success('Batch deleted')
+    toast.success('Run deleted')
     fetchBatches()
     fetchStockItems()
   }
@@ -551,7 +551,7 @@ export function ProductionPageClient({
           <Card className="border-2 border-amber-300 bg-amber-50/90 shadow-md">
             <CardContent className="pt-6 pb-5">
               <p className="text-sm font-semibold text-amber-950 uppercase tracking-wide">
-                Money tied up in unsold items
+                Ingredient cost in unsold items
               </p>
               <p className="text-3xl sm:text-4xl font-extrabold tabular-nums text-gray-900 mt-1">
                 {formatCurrency(totalMoneyTiedUp, currency)}
@@ -566,7 +566,7 @@ export function ProductionPageClient({
                 <Button
                   asChild
                   size="lg"
-                  className="min-h-12 text-base flex-1 bg-green-600 hover:bg-green-700"
+                  className="min-h-12 text-base flex-1 bg-amber-600 hover:bg-amber-700"
                 >
                   <Link href={firstSellBatchId ? `/dashboard/sales?batch=${firstSellBatchId}` : '/dashboard/sales'}>
                     Sell now
@@ -619,12 +619,12 @@ export function ProductionPageClient({
                     id="productName"
                     value={form.productName}
                     onChange={(e) => setForm({ ...form, productName: e.target.value })}
-                    placeholder="Type a name if you picked Custom"
+                    placeholder="Or type any name, e.g. Banana bread, Chin-chin"
                     className="mt-3 min-h-11 text-base"
                     disabled={!!editingBatch?.has_inventory_lines}
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Type it the same way when you sell, so money and costs match up.
+                    Use the same name when you sell so sales and costs match up.
                   </p>
                 </div>
 
@@ -674,7 +674,7 @@ export function ProductionPageClient({
                 </div>
                 {!editingBatch && (
                 <div>
-                  <Label className="text-base">Gave out or lost at make time</Label>
+                  <Label className="text-base">How many are NOT for sale?</Label>
                   <Input
                     type="number"
                     step="0.01"
@@ -682,12 +682,12 @@ export function ProductionPageClient({
                     inputMode="decimal"
                     value={form.unitsGivenAway}
                     onChange={(e) => setForm({ ...form, unitsGivenAway: e.target.value })}
-                    placeholder="0 if everything was for sale"
+                    placeholder="0 (leave blank if everything goes to customers)"
                     className="mt-2 min-h-11 text-base"
                   />
                   <p className="text-xs text-gray-600 mt-1">
-                    Samples, gifts, or waste from this batch still use ingredients — we count them here so
-                    “what is left to sell” stays accurate.
+                    Samples, gifts, tasting pieces — anything you made but won't sell.
+                    Keeps your "left to sell" number accurate.
                   </p>
                 </div>
                 )}
@@ -716,17 +716,29 @@ export function ProductionPageClient({
                 </details>
 
                 {!editingBatch && (
-                  <div className="space-y-3 border rounded-lg p-3 bg-amber-50/40">
+                  <details className="border rounded-lg bg-amber-50/40">
+                    <summary className="cursor-pointer px-3 py-3 flex items-center justify-between">
+                      <span className="text-base font-medium">Track what you used (optional)</span>
+                      <span className="text-xs text-gray-500 ml-2">Add ingredients to see cost</span>
+                    </summary>
+                  <div className="space-y-3 px-3 pb-3 pt-1">
                     <div className="flex justify-between items-center gap-2">
-                      <Label className="text-base font-medium">What did you use?</Label>
+                      <p className="text-xs text-gray-600">
+                        Amounts are in each item&apos;s recipe unit (cups, grams, eggs…).
+                      </p>
                       <Button type="button" size="sm" variant="outline" onClick={addLine}>
                         + Add row
                       </Button>
                     </div>
-                    <p className="text-xs text-gray-600">
-                      Amounts are in each item’s recipe unit (cups, grams, eggs…). Use the shortcuts when you
-                      see them.
-                    </p>
+                    {stockItems.length === 0 && (
+                      <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        No stock items yet.{' '}
+                        <Link href="/dashboard/stock" className="underline font-medium">
+                          Add your ingredients
+                        </Link>{' '}
+                        first to track ingredient costs here.
+                      </p>
+                    )}
                     {lines.map((line, index) => {
                       const cupItem = lineUsageUnitName(line) === 'cup'
                       const lineItem = line.itemId
@@ -853,6 +865,7 @@ export function ProductionPageClient({
                       )
                     })}
                   </div>
+                  </details>
                 )}
 
                 {!editingBatch && liveProductionCost.lineDetails.length > 0 && (
@@ -1018,7 +1031,7 @@ export function ProductionPageClient({
                             <TableCell className="text-right">
                               <div className="flex flex-wrap gap-1 justify-end">
                                 {batch.units_remaining > 0 && batch.product_id ? (
-                                  <Button size="sm" variant="default" className="bg-green-600 hover:bg-green-700" asChild>
+                                  <Button size="sm" variant="default" className="bg-amber-600 hover:bg-amber-700" asChild>
                                     <Link href={`/dashboard/sales?batch=${batch.id}`}>Sell</Link>
                                   </Button>
                                 ) : null}
@@ -1031,7 +1044,7 @@ export function ProductionPageClient({
                                     setDisposeQty('')
                                   }}
                                 >
-                                  What happened?
+                                  Gave away / lost
                                 </Button>
                                 <Button
                                   size="sm"
@@ -1058,7 +1071,7 @@ export function ProductionPageClient({
                                 <div className="space-y-4 max-w-3xl">
                                   <div className="rounded-lg border-2 border-amber-300 bg-amber-50/90 p-4">
                                     <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">
-                                      Money tied up in what is left
+                                      Ingredient cost in what&apos;s left
                                     </p>
                                     {tiedUp > 0 ? (
                                       <>
@@ -1116,7 +1129,7 @@ export function ProductionPageClient({
                                         {runResult < 0
                                           ? 'You may need to increase your price.'
                                           : batch.revenue_from_batch > 0
-                                            ? 'Nice — this batch did well.'
+                                            ? 'Nice — this run did well.'
                                             : batch.units_remaining > 0
                                               ? 'Still waiting for sales — make sure the price works for you.'
                                               : 'Costs are covered for this run.'}

@@ -35,6 +35,7 @@ import {
 } from '@/lib/bakery/simple-presets'
 import { CupFractionRow, WholeNumberChips } from '@/components/bakery-quick-picks'
 import type { StockItemRow, StockUnitRow } from '@/lib/dashboard/stock-data'
+import { loadWeeklyStock, type WeeklyStockRow } from '@/lib/dashboard/weekly-stock-data'
 import { friendlyError } from '@/lib/errors'
 
 type Item = StockItemRow
@@ -60,7 +61,7 @@ export function StockPageClient({
   initialItems: StockItemRow[]
   initialUnits: StockUnitRow[]
 }) {
-  const { businessId, currency } = useBusinessContext()
+  const { businessId, currency, timezone } = useBusinessContext()
   const [items, setItems] = useState<Item[]>(initialItems)
   const [units, setUnits] = useState<Unit[]>(initialUnits)
   const [isLoading, setIsLoading] = useState(false)
@@ -69,13 +70,16 @@ export function StockPageClient({
   const [restockDialogOpen, setRestockDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<Item | null>(null)
   const [restockItem, setRestockItem] = useState<Item | null>(null)
-  const [activeTab, setActiveTab] = useState<'ingredient' | 'packaging'>('ingredient')
+  const [activeTab, setActiveTab] = useState<'ingredient' | 'packaging' | 'weekly'>('ingredient')
   const [restockPurchaseQty, setRestockPurchaseQty] = useState('')
   const [restockCostPerPurchase, setRestockCostPerPurchase] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [page, setPage] = useState(0)
   const PAGE_SIZE = 50
   const [search, setSearch] = useState('')
+  const [weeklyRows, setWeeklyRows] = useState<WeeklyStockRow[]>([])
+  const [weeklyLoading, setWeeklyLoading] = useState(false)
+  const weeklyFetchedRef = useRef(false)
 
   const [form, setForm] = useState({
     name: '',
@@ -201,6 +205,17 @@ export function StockPageClient({
     setPage(0)
   }, [activeTab])
 
+  // Load weekly data when weekly tab is first opened
+  useEffect(() => {
+    if (activeTab !== 'weekly' || !businessId || weeklyFetchedRef.current) return
+    weeklyFetchedRef.current = true
+    setWeeklyLoading(true)
+    loadWeeklyStock(supabase, businessId, timezone ?? 'UTC')
+      .then((rows) => setWeeklyRows(rows))
+      .catch((err) => toast.error(friendlyError(err, 'Could not load weekly view')))
+      .finally(() => setWeeklyLoading(false))
+  }, [activeTab, businessId, supabase, timezone])
+
   // Reset to page 0 when search changes
   useEffect(() => {
     setPage(0)
@@ -226,7 +241,7 @@ export function StockPageClient({
     setEditingItem(null)
     const uid = unitIdByName(units, preset.unit)
     if (!uid) {
-      toast.error(`Unit “${preset.unit}” not found. Ask your admin to run the units seed.`)
+      toast.error(`We couldn't find a unit called “${preset.unit}”. Tap “Other item” to add this ingredient and pick your own unit.`)
       return
     }
     setForm({
@@ -267,14 +282,14 @@ export function StockPageClient({
 
     const ratio = parseFloat(form.conversionRatio)
     if (!ratio || ratio <= 0) {
-      toast.error('Conversion must be greater than zero')
+      toast.error('Enter how many recipe units fit in one purchase unit — must be more than zero')
       return
     }
 
     const purchaseId = form.purchaseUnitId || null
     const usageId = form.usageUnitId || null
     if (!purchaseId || !usageId) {
-      toast.error('Choose units (or use a shortcut button)')
+      toast.error('Choose how you buy it and how you measure it in recipes (or use a shortcut button)')
       return
     }
 
@@ -473,8 +488,8 @@ export function StockPageClient({
                     className="min-h-11 text-base"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    One bag, crate, paint, or pack, in {currency}. We split cost across recipe units using
-                    your conversion below.
+                    What you paid for one bag, crate, or pack, in {currency}. We work out cost per recipe unit
+                    from this.
                   </p>
                 </div>
                 {!editingItem && (
@@ -505,7 +520,7 @@ export function StockPageClient({
                   <div className="space-y-3 pt-3 mt-2 border-t">
                     <div className="grid grid-cols-1 gap-3">
                       <div>
-                        <Label htmlFor="purchaseUnit">Purchase unit</Label>
+                        <Label htmlFor="purchaseUnit">How you buy it (e.g. bag, carton)</Label>
                         <select
                           id="purchaseUnit"
                           value={form.purchaseUnitId}
@@ -521,7 +536,7 @@ export function StockPageClient({
                         </select>
                       </div>
                       <div>
-                        <Label htmlFor="usageUnit">Recipe unit</Label>
+                        <Label htmlFor="usageUnit">How you measure it in recipes (e.g. cups, grams)</Label>
                         <select
                           id="usageUnit"
                           value={form.usageUnitId}
@@ -538,7 +553,7 @@ export function StockPageClient({
                       </div>
                     </div>
                     <div>
-                      <Label htmlFor="ratio">How many recipe units in one purchase?</Label>
+                      <Label htmlFor="ratio">How many of the recipe unit fit in one purchase unit?</Label>
                       <Input
                         id="ratio"
                         type="number"
@@ -618,7 +633,7 @@ export function StockPageClient({
           />
         </div>
 
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'ingredient' | 'packaging')}>
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'ingredient' | 'packaging' | 'weekly')}>
           <TabsList className="h-12 w-full sm:w-auto">
             <TabsTrigger value="ingredient" className="text-base px-6">
               Ingredients
@@ -626,8 +641,67 @@ export function StockPageClient({
             <TabsTrigger value="packaging" className="text-base px-6">
               Packaging
             </TabsTrigger>
+            <TabsTrigger value="weekly" className="text-base px-6">
+              This week
+            </TabsTrigger>
           </TabsList>
 
+          <TabsContent value="weekly" className="mt-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg">What moved this week</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {weeklyLoading ? (
+                  <p className="text-center text-gray-500 py-8">Loading…</p>
+                ) : weeklyRows.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8">
+                    No stock movement recorded this week yet.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Item</TableHead>
+                          <TableHead className="text-right tabular-nums">Start of week</TableHead>
+                          <TableHead className="text-right tabular-nums">Used</TableHead>
+                          <TableHead className="text-right tabular-nums">Added</TableHead>
+                          <TableHead className="text-right tabular-nums">On hand now</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {weeklyRows.map((row) => (
+                          <TableRow key={row.itemId}>
+                            <TableCell className="font-medium">
+                              {row.name}
+                              {row.usageUnitName ? (
+                                <span className="text-xs text-gray-500 ml-1">({row.usageUnitName})</span>
+                              ) : null}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-gray-600">
+                              {row.startOfWeek.toFixed(1)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-red-700">
+                              {row.usedThisWeek > 0 ? `-${row.usedThisWeek.toFixed(1)}` : '—'}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-green-700">
+                              {row.addedThisWeek > 0 ? `+${row.addedThisWeek.toFixed(1)}` : '—'}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums font-medium">
+                              {row.onHandNow.toFixed(1)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {activeTab !== 'weekly' && (
           <TabsContent value={activeTab} className="mt-4 space-y-4">
             <div>
               <p className="text-sm font-medium text-gray-700 mb-2">Quick add</p>
@@ -670,7 +744,7 @@ export function StockPageClient({
                   <p className="text-center text-gray-500 py-8">Loading…</p>
                 ) : displayItems.length === 0 ? (
                   <p className="text-center text-gray-500 py-8">
-                    Nothing here yet. Tap a shortcut above.
+                    Nothing added yet. Tap a preset above, or tap "Other item" to add your first ingredient.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
@@ -679,8 +753,8 @@ export function StockPageClient({
                         <TableRow>
                           <TableHead>Item</TableHead>
                           <TableHead>On hand</TableHead>
-                          <TableHead>Your unit</TableHead>
-                          <TableHead className="text-right tabular-nums">Price per unit</TableHead>
+                          <TableHead>Unit</TableHead>
+                          <TableHead className="text-right tabular-nums">Cost to you</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -770,6 +844,7 @@ export function StockPageClient({
               </CardContent>
             </Card>
           </TabsContent>
+          )}
         </Tabs>
 
         <Dialog open={restockDialogOpen} onOpenChange={setRestockDialogOpen}>

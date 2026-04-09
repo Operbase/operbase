@@ -87,6 +87,49 @@ The strategy is not to build a dedicated vertical per business type. The core en
 
 ---
 
+### Phase 1.5 — Guided UX (Onboarding + In-App Tours)
+
+**Goal:** Reduce drop-off for new users. Move beyond the static checklist into layered, progressive guidance that teaches the app without a manual.
+
+**What already exists:**
+- `GettingStartedHelper` — a dismissible 3-step card on the dashboard (static checklist). Reopenable via the "?" button in the sidebar.
+
+**What to build:**
+
+| Type | What it is | Priority |
+|------|-----------|----------|
+| **Onboarding Tour** | Full intro flow shown once after signup — walks the user through the whole app screen by screen, skippable at any point | High |
+| **Product Tour** | Step-by-step spotlight tour for a single page (e.g. "here is how production works"), triggered from the "?" button or empty state | High |
+| **Tooltips / Coach Marks** | Small popups anchored to a specific button or field, shown once, dismissed on click — for non-obvious actions (e.g. "tap here to track cost") | Medium |
+| **Hotspots** | Pulsing highlight circle on a UI element to draw attention — used sparingly for new features or first-use nudges | Medium |
+
+**Design principles:**
+- All tours are **skippable and dismissible** at any step — never block the user
+- State stored in `localStorage` (per-device) for MVP; migrate to `user_preferences` DB table when multi-device matters
+- Tours are **data-driven** (a config array of steps) not hardcoded per page — so adding a new page tour does not require new component logic
+- Tours **never fire if the user has already completed the relevant action** (e.g. no stock tour if they already have items)
+- Hotspots and tooltips are **versioned** — each tip has an ID so we can introduce new tips for new features without re-showing old ones
+
+**Implementation approach:**
+- Build a single `TourProvider` context + `useTour()` hook
+- A `TourSpotlight` overlay component handles the step-by-step pointer + backdrop + navigation
+- `Tooltip` and `Hotspot` components are standalone wrappers that read dismissal state from localStorage by tip ID
+- No external tour library needed — the surface area is small and we want full control over visual style to match brand color
+
+**Triggers:**
+- Onboarding Tour: fires once after business is created (check `localStorage.getItem('ob_tour_done')`)
+- Product Tour: triggered by "?" button on any page, or from the `GettingStartedHelper` step CTA
+- Tooltips / Hotspots: attached inline to specific elements, fire once per tip ID
+
+**Data we want to track:**
+- Tour started, tour completed, tour skipped (step number where skipped)
+- Tooltip dismissed
+- Helps identify which steps lose users and which features need better discovery
+
+**Status:** Not started. `GettingStartedHelper` is the current placeholder. Replace or extend it as part of this phase.
+
+---
+
 ### Phase 2 — Business Expansion (Single Business)
 
 **Goal:** Increase usability within one business  

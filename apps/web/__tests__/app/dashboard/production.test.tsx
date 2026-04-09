@@ -264,7 +264,7 @@ describe('ProductionPage', () => {
     await user.click(screen.getByRole('button', { name: /delete sourdough bread/i }))
 
     expect(confirmSpy).toHaveBeenCalledWith(
-      'Delete this batch? Stock from ingredients will be restored if applicable.'
+      'Delete this run? Stock from ingredients will be restored.'
     )
     confirmSpy.mockRestore()
   })

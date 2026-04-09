@@ -147,8 +147,8 @@ describe('DashboardHomeClient', () => {
 
   it('shows daily summary numbers', () => {
     renderHome()
-    expect(screen.getByText('Made today')).toBeTruthy()
-    expect(screen.getByText('Sold today')).toBeTruthy()
+    expect(screen.getByText('Made')).toBeTruthy()
+    expect(screen.getByText('Sold')).toBeTruthy()
     expect(screen.getByText('40')).toBeTruthy()
     expect(screen.getByText('15')).toBeTruthy()
   })

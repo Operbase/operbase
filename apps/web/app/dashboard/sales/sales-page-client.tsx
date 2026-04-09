@@ -717,7 +717,7 @@ export function SalesPageClient({
                         {saleSource
                           ? saleSource.kind === 'batch'
                             ? `${saleSource.productName} · ${formatFriendlyDate(saleSource.producedAt, timezone)} · ${saleSource.unitsRemaining} left`
-                            : `${saleSource.productName} · quick sale (no run picked)`
+                            : `${saleSource.productName} · not from a specific run`
                           : 'Search or pick a product…'}
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
@@ -726,9 +726,9 @@ export function SalesPageClient({
                       <Command>
                         <CommandInput placeholder="Search products and runs…" className="h-11" />
                         <CommandList>
-                          <CommandEmpty>Nothing matches. Add the product under Production first.</CommandEmpty>
+                          <CommandEmpty>Nothing matches. Add your products in the Products section first.</CommandEmpty>
                           {batchesForPicker.length > 0 ? (
-                            <CommandGroup heading="From a run (uses real stock)">
+                            <CommandGroup heading="From a production run">
                               {batchesForPicker.map((b) => {
                                 const name = b.products?.name ?? 'Product'
                                 if (!b.product_id) return null
@@ -759,7 +759,7 @@ export function SalesPageClient({
                               })}
                             </CommandGroup>
                           ) : null}
-                          <CommandGroup heading="Quick sale (average cost)">
+                          <CommandGroup heading="Quick sale">
                             {productsForPicker.map((p) => (
                               <CommandItem
                                 key={p.id}
@@ -784,8 +784,8 @@ export function SalesPageClient({
                     </PopoverContent>
                   </Popover>
                   <p className="text-xs text-gray-600">
-                    Pick a run when you are selling from that batch. Otherwise use quick sale — we use your usual
-                    cost.
+                    Pick a run if you made this product today — that links the sale to your real stock.
+                    Otherwise, quick sale works fine.
                   </p>
                 </div>
 
@@ -917,7 +917,7 @@ export function SalesPageClient({
                     </div>
                     {salePreview.cost != null ? (
                       <div className="flex justify-between items-center gap-3 pt-2 border-t">
-                        <span className="font-medium text-gray-900">Profit</span>
+                        <span className="font-medium text-gray-900">You keep</span>
                         <span className={`text-xl font-bold tabular-nums ${profitTextClass(salePreview.profit ?? 0)}`}>
                           {formatCurrency(salePreview.profit ?? 0, currency)}
                         </span>
@@ -932,7 +932,7 @@ export function SalesPageClient({
                     {salePreview.cost != null ? (
                       <details className="text-sm border border-gray-200 rounded-md bg-white px-3 py-2">
                         <summary className="cursor-pointer font-medium text-gray-800 py-1">
-                          See details
+                          See cost breakdown
                         </summary>
                         <div className="pt-2 space-y-2 text-gray-600">
                           {salePreview.profitPerUnit != null && salePreview.profitPerUnit < 0 ? (
@@ -1053,7 +1053,7 @@ export function SalesPageClient({
           className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm"
           onToggle={(e) => setSalesDetailsOpen(e.currentTarget.open)}
         >
-          <summary className="cursor-pointer font-medium text-gray-900">See details</summary>
+          <summary className="cursor-pointer font-medium text-gray-900">See daily breakdown</summary>
           <div className="mt-3 space-y-3 text-gray-700">
             <p>
               <strong className="tabular-nums">{totalUnits.toFixed(0)}</strong> items sold in this view.
@@ -1102,8 +1102,8 @@ export function SalesPageClient({
               <p className="text-center text-gray-500 py-8">Loading...</p>
             ) : sales.length === 0 ? (
               <p className="text-center text-gray-500 py-8 max-w-md mx-auto leading-relaxed">
-                No sales yet. Tap Log sale when you ring one up. Money in and what you kept show on this page
-                and the dashboard.
+                No sales yet. Tap &ldquo;Log sale&rdquo; when money comes in. Your revenue, cost, and profit will
+                show up here and on the dashboard.
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -1112,7 +1112,7 @@ export function SalesPageClient({
                     <TableRow>
                       <TableHead className="w-10 p-2" />
                       <TableHead>Sale</TableHead>
-                      <TableHead className="text-right">Profit</TableHead>
+                      <TableHead className="text-right">You kept</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
