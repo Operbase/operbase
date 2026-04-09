@@ -271,7 +271,7 @@ export function GlobalQuickLog() {
         p_extra_notes:        null,
         p_lines:              [],
         p_units_not_for_sale: 0,
-        p_variant_id:         madeForm.variantId ?? null,
+        ...(madeForm.variantId ? { p_variant_id: madeForm.variantId } : {}),
       })
       if (bErr) throw bErr
 
@@ -286,7 +286,7 @@ export function GlobalQuickLog() {
           p_customer_id:       null,
           p_batch_id:          batchId as string,
           p_cogs_if_no_batch:  null,
-          p_variant_id:        madeForm.variantId ?? null,
+          ...(madeForm.variantId ? { p_variant_id: madeForm.variantId } : {}),
         })
         if (sErr) throw sErr
         const remaining = qty - soldQty
@@ -338,7 +338,7 @@ export function GlobalQuickLog() {
         p_customer_id:      null,
         p_batch_id:         soldForm.batchId ?? null,
         p_cogs_if_no_batch: null,
-        p_variant_id:       soldForm.variantId ?? null,
+        ...(soldForm.variantId ? { p_variant_id: soldForm.variantId } : {}),
       })
       if (error) throw error
       toast.success(`Saved. ${qty} \u00d7 ${name} at ${currency}${price}.`)
@@ -431,7 +431,7 @@ export function GlobalQuickLog() {
         p_extra_notes:        'Given away',
         p_lines:              [],
         p_units_not_for_sale: 0,
-        p_variant_id:         gaveForm.variantId ?? null,
+        ...(gaveForm.variantId ? { p_variant_id: gaveForm.variantId } : {}),
       })
       if (bErr) throw bErr
 
