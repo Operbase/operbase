@@ -25,7 +25,7 @@ interface Product     { id: string; name: string }
 interface Variant     { id: string; name: string }
 interface StockItem   { id: string; name: string; purchaseUnitId: string | null; purchaseUnitName: string; conversionRatio: number; usageUnitName: string }
 interface UnitOption  { id: string; name: string }
-interface BatchOption { id: string; label: string; unitsRemaining: number }
+interface BatchOption { id: string; label: string; unitsRemaining: number; producedAt: string }
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'made',   label: 'I made'      },
@@ -59,8 +59,15 @@ const D_USED = {
 }
 const D_GAVE = {
   productName: '', productId: null as string | null, variantId: null as string | null,
-  qty: '', date: '',
+  qty: '', date: '', batchId: null as string | null,
+  kind: 'given_out' as 'given_out' | 'not_sold' | 'spoiled',
 }
+
+const GAVE_KINDS: { id: 'given_out' | 'not_sold' | 'spoiled'; label: string; hint: string }[] = [
+  { id: 'given_out', label: 'Sample / gift',       hint: 'Tasting pieces, gifts, freebies' },
+  { id: 'not_sold',  label: "Couldn't sell",        hint: 'Customer didn\'t buy, end of day unsold' },
+  { id: 'spoiled',   label: 'Spoiled / gone bad',   hint: 'Expired, damaged after production' },
+]
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
@@ -125,6 +132,29 @@ export function GlobalQuickLog() {
     setSoldForm(f => ({ ...f, date: f.date || today }))
     setGaveForm(f => ({ ...f, date: f.date || today }))
   }, [open, timezone])
+
+  // ── Auto-match gave batch when date changes ──────────────────────────────────
+  useEffect(() => {
+    if (tab !== 'gave' || !gaveForm.date || batches.length === 0) return
+    // Find the batch whose produced_at is closest on or before the selected date
+    const selectedMs = new Date(gaveForm.date).getTime()
+    let best: BatchOption | null = null
+    let bestDiff = Infinity
+    for (const b of batches) {
+      const bMs = new Date(b.producedAt).getTime()
+      const diff = selectedMs - bMs
+      if (diff >= 0 && diff < bestDiff) { bestDiff = diff; best = b }
+    }
+    // Fall back to nearest future batch if nothing found on/before date
+    if (!best) {
+      for (const b of batches) {
+        const diff = Math.abs(new Date(b.producedAt).getTime() - selectedMs)
+        if (diff < bestDiff) { bestDiff = diff; best = b }
+      }
+    }
+    if (best) setGaveForm(f => ({ ...f, batchId: best!.id }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gaveForm.date, tab])
 
   // ── Clear variant / batch lists when tab changes ─────────────────────────────
   useEffect(() => {
@@ -204,6 +234,7 @@ export function GlobalQuickLog() {
           id: b.id as string,
           label: `${b.notes} · ${b.units_remaining} left (${dateStr})`,
           unitsRemaining: Number(b.units_remaining),
+          producedAt: b.produced_at as string,
         }
       })
     )
@@ -218,12 +249,13 @@ export function GlobalQuickLog() {
     const productId = id ?? products.find(p => p.name.toLowerCase() === name.toLowerCase())?.id ?? null
     if (formType === 'made') setMadeForm(f => ({ ...f, productName: name, productId, variantId: null }))
     else if (formType === 'sold') setSoldForm(f => ({ ...f, productName: name, productId, variantId: null, batchId: null }))
-    else setGaveForm(f => ({ ...f, productName: name, productId, variantId: null }))
+    else setGaveForm(f => ({ ...f, productName: name, productId, variantId: null, batchId: null }))
     setVariants([])
     setBatches([])
     if (productId) {
       await loadVariants(productId)
       if (formType === 'sold') await loadBatches(productId, null)
+      if (formType === 'gave') await loadBatches(productId, null)
     }
   }
 
@@ -234,7 +266,10 @@ export function GlobalQuickLog() {
       setSoldForm(f => ({ ...f, variantId, batchId: null }))
       if (soldForm.productId) await loadBatches(soldForm.productId, variantId)
     }
-    else setGaveForm(f => ({ ...f, variantId }))
+    else {
+      setGaveForm(f => ({ ...f, variantId, batchId: null }))
+      if (gaveForm.productId) await loadBatches(gaveForm.productId, variantId)
+    }
   }
 
   // ── Stock item selection ("I bought" and "I used") ───────────────────────────
@@ -454,39 +489,25 @@ export function GlobalQuickLog() {
   async function handleGaveSave() {
     if (!businessId) return
     const name = gaveForm.productName.trim()
-    if (!name)       { toast.error('Enter what you gave away'); return }
+    if (!name)           { toast.error('Enter what you gave away'); return }
     const qty = parseFloat(gaveForm.qty)
     if (!qty || qty <= 0) { toast.error('Enter how many'); return }
-    if (!gaveForm.date)   { toast.error('Select a date'); return }
+    if (!gaveForm.batchId) { toast.error('Select which production run this came from'); return }
+
+    const batch = batches.find(b => b.id === gaveForm.batchId)
+    if (batch && batch.unitsRemaining < qty) {
+      toast.error(`Only ${batch.unitsRemaining} left in that run`)
+      return
+    }
 
     setIsSubmitting(true)
     try {
-      let productId = gaveForm.productId
-      if (!productId) {
-        const { data, error } = await supabase.rpc('ensure_product', { p_business_id: businessId, p_name: name })
-        if (error) throw error
-        productId = data as string
-      }
-
-      const { data: batchId, error: bErr } = await supabase.rpc('create_production_batch', {
-        p_business_id:        businessId,
-        p_product_id:         productId,
-        p_display_name:       name,
-        p_units_produced:     qty,
-        p_produced_at:        businessCalendarDateToIsoUtc(gaveForm.date, timezone),
-        p_extra_notes:        'Given away',
-        p_lines:              [],
-        p_units_not_for_sale: 0,
-        ...(gaveForm.variantId ? { p_variant_id: gaveForm.variantId } : {}),
-      })
-      if (bErr) throw bErr
-
-      const { error: dErr } = await supabase.rpc('dispose_batch_units', {
-        p_batch_id: batchId as string,
+      const { error } = await supabase.rpc('dispose_batch_units', {
+        p_batch_id: gaveForm.batchId,
         p_quantity: qty,
-        p_kind:     'given_out',
+        p_kind:     gaveForm.kind,
       })
-      if (dErr) throw dErr
+      if (error) throw error
 
       toast.success(`Saved. ${qty} ${name} marked as given away.`)
       resetForms()
@@ -996,6 +1017,21 @@ export function GlobalQuickLog() {
                   activeId={gaveForm.variantId}
                   onSelect={id => void selectVariant(id, 'gave')}
                 />
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-1.5">What happened to them?</p>
+                  <div className="flex flex-col gap-1.5">
+                    {GAVE_KINDS.map(k => (
+                      <button key={k.id} type="button"
+                        onClick={() => setGaveForm(f => ({ ...f, kind: k.id }))}
+                        className="text-left px-3 py-2.5 rounded-xl border text-sm transition-colors"
+                        style={activeChipStyle(gaveForm.kind === k.id)}>
+                        <span className="font-medium">{k.label}</span>
+                        <span className="block text-xs opacity-70">{k.hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <Input
                   type="number" inputMode="decimal"
                   placeholder="How many?"
@@ -1003,13 +1039,42 @@ export function GlobalQuickLog() {
                   onChange={e => setGaveForm(f => ({ ...f, qty: e.target.value }))}
                   className="min-h-11"
                 />
+
                 <DateField
                   label="When was this?"
                   value={gaveForm.date}
                   onChange={v => setGaveForm(f => ({ ...f, date: v }))}
                 />
+
+                {/* Batch matcher */}
+                {gaveForm.productId && batches.length === 0 && (
+                  <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 border border-amber-200">
+                    No production runs found for this product. Log a run first under &quot;I made&quot;.
+                  </p>
+                )}
+                {batches.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Which run did this come from?
+                      {gaveForm.batchId && gaveForm.date && (
+                        <span className="ml-1 font-normal text-gray-400">(matched to closest date)</span>
+                      )}
+                    </label>
+                    <select
+                      value={gaveForm.batchId ?? ''}
+                      onChange={e => setGaveForm(f => ({ ...f, batchId: e.target.value || null }))}
+                      className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm min-h-11 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                    >
+                      <option value="">Select a run…</option>
+                      {batches.map(b => (
+                        <option key={b.id} value={b.id}>{b.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <p className="text-xs text-gray-500">
-                  Samples, gifts, or tasting pieces. These will not count as sold.
+                  None of these count as revenue. They are deducted from the selected run.
                 </p>
                 <SaveButton onClick={() => void handleGaveSave()} />
               </>
