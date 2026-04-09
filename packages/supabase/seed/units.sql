@@ -14,5 +14,14 @@ INSERT INTO units (name, type) VALUES
   ('bag',         'count'),
   ('loaf',        'count'),
   ('pack',        'count'),
-  ('roll',        'count')
+  ('roll',        'count'),
+  ('crate',       'count'),
+  ('tray',        'count'),
+  ('box',         'count'),
+  ('bottle',      'volume'),
+  ('jar',         'volume'),
+  ('tin',         'count'),
+  ('sachet',      'weight'),
+  ('carton',      'count'),
+  ('flat',        'count')
 ON CONFLICT (name) DO NOTHING;

@@ -52,6 +52,7 @@ const D_BOUGHT = {
   isNew: false, qty: '', totalCost: '',
   entryUnitId: null as string | null,   // which unit the user is entering qty in; null = purchase unit
   entryUnitName: '',
+  customConvFactor: '',  // how many usage units per 1 entryUnit (when entryUnit is neither purchase nor usage)
 }
 const D_USED = {
   itemName: '', itemId: null as string | null, usageUnitName: '',
@@ -288,6 +289,7 @@ export function GlobalQuickLog() {
         isNew: false,
         entryUnitId: item.purchaseUnitId,
         entryUnitName: item.purchaseUnitName,
+        customConvFactor: '',
       }))
     }
   }
@@ -299,6 +301,7 @@ export function GlobalQuickLog() {
         ...f, itemName: name, itemId: match.id,
         purchaseUnitId: match.purchaseUnitId, purchaseUnitName: match.purchaseUnitName,
         isNew: false, entryUnitId: match.purchaseUnitId, entryUnitName: match.purchaseUnitName,
+        customConvFactor: '',
       }))
     } else {
       setBoughtForm(f => ({
@@ -439,12 +442,34 @@ export function GlobalQuickLog() {
     const matchedItem = boughtForm.itemId ? stockItems.find(i => i.id === boughtForm.itemId) : null
     const convRatio = matchedItem?.conversionRatio ?? 1
     const entryUnitId = boughtForm.entryUnitId ?? boughtForm.purchaseUnitId
-    // If user entered in usage units (≠ purchase unit) and a conversion ratio exists, divide
+
     const enteredInUsageUnit = !!matchedItem?.usageUnitId
       && entryUnitId === matchedItem.usageUnitId
       && entryUnitId !== boughtForm.purchaseUnitId
       && convRatio > 1
-    const purchaseQty = enteredInUsageUnit ? enteredQty / convRatio : enteredQty
+
+    const isOtherUnit = !enteredInUsageUnit
+      && entryUnitId !== boughtForm.purchaseUnitId
+      && entryUnitId !== null
+
+    let purchaseQty: number
+    if (enteredInUsageUnit) {
+      // e.g. user enters in pieces/eggs; divide by convRatio to get dozens
+      purchaseQty = enteredQty / convRatio
+    } else if (isOtherUnit) {
+      // e.g. user enters in crates — they told us how many usage units per crate
+      const factor = parseFloat(boughtForm.customConvFactor)
+      if (!factor || factor <= 0) {
+        toast.error(`Enter how many ${matchedItem?.usageUnitName || 'units'} are in 1 ${boughtForm.entryUnitName}`)
+        setIsSubmitting(false)
+        return
+      }
+      // enteredQty crates × factor usageUnits/crate ÷ convRatio usageUnits/purchaseUnit
+      const usageQty = enteredQty * factor
+      purchaseQty = convRatio > 0 ? usageQty / convRatio : usageQty
+    } else {
+      purchaseQty = enteredQty
+    }
     const displayUnit = boughtForm.entryUnitName || boughtForm.purchaseUnitName
 
     setIsSubmitting(true)
@@ -845,15 +870,29 @@ export function GlobalQuickLog() {
                   const usageUnitId = matchedItem?.usageUnitId ?? null
                   const currentUnit = boughtForm.entryUnitId ?? boughtForm.purchaseUnitId
                   const qty = parseFloat(boughtForm.qty) || 0
+
+                  const isOtherUnit = currentUnit !== boughtForm.purchaseUnitId && currentUnit !== usageUnitId && currentUnit !== null
+                  const isUsageUnit = !!usageUnitId && currentUnit === usageUnitId && currentUnit !== boughtForm.purchaseUnitId
+
                   // Live conversion hint
-                  const showHint = ratio > 1 && !!usageUnit && usageUnit !== boughtForm.purchaseUnitName
                   const hintText = (() => {
-                    if (!showHint || qty === 0) return null
-                    if (currentUnit === usageUnitId) {
+                    if (qty === 0) return null
+                    if (isOtherUnit) {
+                      const factor = parseFloat(boughtForm.customConvFactor) || 0
+                      if (!factor) return null
+                      const usageQty = qty * factor
+                      const purchaseQty = ratio > 0 ? usageQty / ratio : usageQty
+                      return `${qty} ${boughtForm.entryUnitName} = ${usageQty} ${usageUnit || 'units'} → stored as ${purchaseQty.toFixed(3).replace(/\.?0+$/, '')} ${boughtForm.purchaseUnitName}`
+                    }
+                    if (isUsageUnit && ratio > 1) {
                       return `${qty} ${usageUnit} = ${(qty / ratio).toFixed(3).replace(/\.?0+$/, '')} ${boughtForm.purchaseUnitName} stored`
                     }
-                    return `${qty} ${boughtForm.purchaseUnitName} = ${qty * ratio} ${usageUnit} in stock`
+                    if (!isUsageUnit && ratio > 1 && usageUnit) {
+                      return `${qty} ${boughtForm.purchaseUnitName} = ${qty * ratio} ${usageUnit} in stock`
+                    }
+                    return null
                   })()
+
                   return (
                     <div className="space-y-1.5">
                       <label className="block text-xs font-medium text-gray-500">I am entering quantity in</label>
@@ -865,6 +904,7 @@ export function GlobalQuickLog() {
                             ...f,
                             entryUnitId: e.target.value || null,
                             entryUnitName: u?.name ?? '',
+                            customConvFactor: '',
                           }))
                         }}
                         className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm min-h-11 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
@@ -881,12 +921,29 @@ export function GlobalQuickLog() {
                             {usageUnit} (individual)
                           </option>
                         )}
-                        {/* All other units */}
+                        {/* All other units — e.g. crate, tray, box */}
                         {allUnits
                           .filter(u => u.id !== boughtForm.purchaseUnitId && u.id !== usageUnitId)
                           .map(u => <option key={u.id} value={u.id}>{u.name}</option>)
                         }
                       </select>
+
+                      {/* Conversion factor field for "other" units (e.g. crate) */}
+                      {isOtherUnit && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">
+                            How many <span className="font-semibold">{usageUnit || boughtForm.purchaseUnitName}</span> are in 1 <span className="font-semibold">{boughtForm.entryUnitName}</span>?
+                          </label>
+                          <Input
+                            type="number" inputMode="decimal"
+                            placeholder={`e.g. 30 (if 1 ${boughtForm.entryUnitName} = 30 ${usageUnit || boughtForm.purchaseUnitName})`}
+                            value={boughtForm.customConvFactor}
+                            onChange={e => setBoughtForm(f => ({ ...f, customConvFactor: e.target.value }))}
+                            className="min-h-11"
+                          />
+                        </div>
+                      )}
+
                       {hintText && (
                         <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-100">
                           {hintText}
