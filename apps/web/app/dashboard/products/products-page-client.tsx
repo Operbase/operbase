@@ -21,17 +21,13 @@ import type { ProductCatalogRow } from '@/lib/dashboard/products-data'
 
 type WizardStep = 1 | 2 | 3
 
-/** A variant row in the Step-2 form */
-type VariantDraft = {
-  name: string
-  /** What it costs to make one of this type */
-  cost: string
-}
+/** A variant row — just the name; cost is derived from production, not entered here */
+type VariantDraft = { name: string }
 
 type AddonDraft = { name: string; extraCost: string }
 
 function emptyVariants(): VariantDraft[] {
-  return [{ name: '', cost: '' }]
+  return [{ name: '' }]
 }
 
 function emptyAddons(): AddonDraft[] {
@@ -46,8 +42,8 @@ const STEP_LABELS: Record<WizardStep, string> = {
 
 const STEP_HINTS: Record<WizardStep, string> = {
   1: 'Give it a name your whole team will recognise.',
-  2: 'E.g. "Oat", "Double Chocolate", "Large". Skip if it only comes one way.\nAdd what it costs you to make each type — we use this to work out profit.',
-  3: 'E.g. "Nuts", "Coconut", "Extra sauce". Skip if there are none.',
+  2: 'e.g. "Oat", "Double Chocolate", "Large". Skip if it only comes one way.',
+  3: 'e.g. "Nuts", "Coconut", "Extra sauce". Skip if there are none.',
 }
 
 export function ProductsPageClient({
@@ -62,13 +58,8 @@ export function ProductsPageClient({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Step-1 state
   const [productName, setProductName] = useState('')
-
-  // Step-2 state: type name + cost
   const [variants, setVariants] = useState<VariantDraft[]>(emptyVariants())
-
-  // Step-3 state: addon name + optional price
   const [addons, setAddons] = useState<AddonDraft[]>(emptyAddons())
 
   // ─── open / close ──────────────────────────────────────────────────────────
@@ -88,10 +79,7 @@ export function ProductsPageClient({
     setProductName(product.name)
     setVariants(
       product.variants.length > 0
-        ? product.variants.map((v) => ({
-            name: v.name,
-            cost: v.cost_per_unit != null ? String(v.cost_per_unit) : '',
-          }))
+        ? product.variants.map((v) => ({ name: v.name }))
         : emptyVariants()
     )
     setAddons(
@@ -114,14 +102,8 @@ export function ProductsPageClient({
   function goNext() {
     if (step === 1) {
       const name = productName.trim()
-      if (!name) {
-        toast.error('Enter the product name.')
-        return
-      }
-      if (name.length > 200) {
-        toast.error('Product name must be 200 characters or less.')
-        return
-      }
+      if (!name) { toast.error('Enter the product name.'); return }
+      if (name.length > 200) { toast.error('Product name must be 200 characters or less.'); return }
       setStep(2)
     } else if (step === 2) {
       setStep(3)
@@ -136,15 +118,15 @@ export function ProductsPageClient({
   // ─── variant helpers ───────────────────────────────────────────────────────
 
   function addVariantRow() {
-    setVariants((v) => [...v, { name: '', cost: '' }])
+    setVariants((v) => [...v, { name: '' }])
   }
 
   function removeVariantRow(i: number) {
     setVariants((v) => v.filter((_, idx) => idx !== i))
   }
 
-  function setVariantField(i: number, field: keyof VariantDraft, val: string) {
-    setVariants((v) => v.map((x, idx) => (idx === i ? { ...x, [field]: val } : x)))
+  function setVariantName(i: number, val: string) {
+    setVariants((v) => v.map((x, idx) => (idx === i ? { name: val } : x)))
   }
 
   // ─── addon helpers ─────────────────────────────────────────────────────────
@@ -174,18 +156,13 @@ export function ProductsPageClient({
 
     const validVariants = variants
       .filter((v) => v.name.trim().length > 0)
-      .map((v, i) => ({
-        name: v.name.trim(),
-        cost_per_unit: v.cost.trim() !== '' ? parseFloat(v.cost) || null : null,
-        sort_order: i,
-      }))
+      .map((v, i) => ({ name: v.name.trim(), sort_order: i, cost_per_unit: null }))
 
     const validAddons = addons
       .filter((a) => a.name.trim().length > 0)
       .map((a, i) => ({
         name: a.name.trim(),
-        extra_cost:
-          a.extraCost.trim() !== '' ? parseFloat(a.extraCost) || null : null,
+        extra_cost: a.extraCost.trim() !== '' ? parseFloat(a.extraCost) || null : null,
         sort_order: i,
       }))
 
@@ -260,10 +237,7 @@ export function ProductsPageClient({
       .delete()
       .eq('id', id)
       .eq('business_id', businessId)
-    if (error) {
-      toast.error(friendlyError(error))
-      return
-    }
+    if (error) { toast.error(friendlyError(error)); return }
     toast.success('Product removed.')
     setProducts((p) => p.filter((x) => x.id !== id))
   }
@@ -308,28 +282,32 @@ export function ProductsPageClient({
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Products</h1>
           <p className="text-gray-600 mt-1">
-            What you sell — with types and extras. Set the cost per type so profit is always accurate.
+            What you sell, with types and extras.
           </p>
         </div>
         <Button
           onClick={openCreate}
           size="lg"
-          className="bg-amber-600 hover:bg-amber-700 shrink-0"
+          className="shrink-0"
+          style={{ backgroundColor: 'var(--brand)' }}
         >
           <Plus size={18} className="mr-2" />
           Add product
         </Button>
       </div>
 
-      {/* ── Product list ─────────────────────────────────────────────── */}
+      {/* ── Product list ─────────────────────────────────────────── */}
       {products.length === 0 ? (
         <div className="text-center py-16 text-gray-500 border border-dashed rounded-xl">
           <p className="text-lg font-medium text-gray-700">No products yet</p>
           <p className="text-sm mt-1 max-w-xs mx-auto">
-            Add your products here. Types (e.g. Oat, Large) and extras (e.g. Nuts) can be added
-            to each one.
+            Add your products here. Types (e.g. Oat, Large) and extras (e.g. Nuts) can be added to each one.
           </p>
-          <Button onClick={openCreate} className="mt-5 bg-amber-600 hover:bg-amber-700">
+          <Button
+            onClick={openCreate}
+            className="mt-5"
+            style={{ backgroundColor: 'var(--brand)' }}
+          >
             <Plus size={16} className="mr-2" />
             Add your first product
           </Button>
@@ -366,7 +344,8 @@ export function ProductsPageClient({
                         <Badge
                           key={a.id}
                           variant="outline"
-                          className="text-xs border-amber-300 text-amber-800 bg-amber-50"
+                          className="text-xs"
+                          style={{ borderColor: 'var(--brand-mid)', color: 'var(--brand-dark)', backgroundColor: 'var(--brand-light)' }}
                         >
                           + {a.name}
                           {a.extra_cost != null && a.extra_cost > 0
@@ -402,96 +381,131 @@ export function ProductsPageClient({
                   </Button>
                 </div>
               </div>
+
+              {/* Context-aware quick actions */}
+              <div className="flex gap-4 mt-3 pt-2.5 border-t border-gray-100">
+                <button
+                  type="button"
+                  className="text-xs font-medium text-gray-500 hover:text-gray-900 transition-colors"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent('operbase:quick-log', {
+                        detail: { tab: 'made', productName: product.name },
+                      })
+                    )
+                  }
+                >
+                  + I made some
+                </button>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-gray-500 hover:text-gray-900 transition-colors"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent('operbase:quick-log', {
+                        detail: { tab: 'sold', productName: product.name },
+                      })
+                    )
+                  }
+                >
+                  + I sold some
+                </button>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-gray-500 hover:text-gray-900 transition-colors"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent('operbase:quick-log', {
+                        detail: { tab: 'gave', productName: product.name },
+                      })
+                    )
+                  }
+                >
+                  + I gave some away
+                </button>
+              </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* ── Wizard dialog ─────────────────────────────────────────────── */}
+      {/* ── Wizard dialog ─────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-xl">
-              {editingId ? 'Edit product' : 'Add product'}
-            </DialogTitle>
-          </DialogHeader>
+        <DialogContent className="sm:max-w-md overflow-hidden p-0">
+          {/* Branded header strip */}
+          <div className="px-6 pt-5 pb-4" style={{ backgroundColor: 'var(--brand-light)', borderBottom: '1px solid var(--brand-mid)' }}>
+            <DialogHeader>
+              <DialogTitle className="text-xl" style={{ color: 'var(--brand-dark)' }}>
+                {editingId ? 'Edit product' : 'Add product'}
+              </DialogTitle>
+            </DialogHeader>
 
-          {/* Step indicator */}
-          <div className="flex items-center gap-2 text-sm">
-            {([1, 2, 3] as WizardStep[]).map((s, i) => (
-              <div key={s} className="flex items-center gap-2">
-                <span
-                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
-                    s === step
-                      ? 'bg-amber-600 text-white'
-                      : s < step
-                        ? 'bg-amber-100 text-amber-700'
-                        : 'bg-gray-100 text-gray-400'
-                  }`}
-                >
-                  {s}
-                </span>
-                {i < 2 && <ChevronRight size={12} className="text-gray-300" />}
-              </div>
-            ))}
-            <span className="ml-1 font-medium text-gray-700">{STEP_LABELS[step]}</span>
+            {/* Step indicator */}
+            <div className="flex items-center gap-2 text-sm mt-3">
+              {([1, 2, 3] as WizardStep[]).map((s, i) => (
+                <div key={s} className="flex items-center gap-2">
+                  <span
+                    className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium"
+                    style={
+                      s === step
+                        ? { backgroundColor: 'var(--brand)', color: 'white' }
+                        : s < step
+                          ? { backgroundColor: 'var(--brand-mid)', color: 'var(--brand-dark)' }
+                          : { backgroundColor: '#f3f4f6', color: '#9ca3af' }
+                    }
+                  >
+                    {s}
+                  </span>
+                  {i < 2 && <ChevronRight size={12} className="text-gray-300" />}
+                </div>
+              ))}
+              <span className="ml-1 font-medium text-gray-700">{STEP_LABELS[step]}</span>
+            </div>
+
+            <p className="text-sm text-gray-600 mt-1">{STEP_HINTS[step]}</p>
           </div>
 
-          <p className="text-sm text-gray-500 -mt-1 whitespace-pre-line">{STEP_HINTS[step]}</p>
-
-          {/* ── Step 1: Product name ─────────────────────────────────── */}
-          {step === 1 && (
-            <div className="space-y-3">
-              <div>
-                <Label htmlFor="productName" className="text-base">Product name</Label>
-                <Input
-                  id="productName"
-                  value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
-                  placeholder="e.g. Banana Bread"
-                  className="mt-1 min-h-11 text-base"
-                  autoFocus
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goNext() } }}
-                />
+          <div className="px-6 py-4 space-y-4">
+            {/* ── Step 1: Product name ─────────────────────────────── */}
+            {step === 1 && (
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="productName" className="text-base">Product name</Label>
+                  <Input
+                    id="productName"
+                    value={productName}
+                    onChange={(e) => setProductName(e.target.value)}
+                    placeholder="e.g. Banana Bread"
+                    className="mt-1 min-h-11 text-base"
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goNext() } }}
+                  />
+                </div>
+                <div className="flex justify-end pt-2">
+                  <Button
+                    onClick={goNext}
+                    style={{ backgroundColor: 'var(--brand)' }}
+                  >
+                    Next
+                    <ChevronRight size={16} className="ml-1" />
+                  </Button>
+                </div>
               </div>
-              <div className="flex justify-end pt-2">
-                <Button onClick={goNext} className="bg-amber-600 hover:bg-amber-700">
-                  Next
-                  <ChevronRight size={16} className="ml-1" />
-                </Button>
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* ── Step 2: Variants (types) ─────────────────────────────── */}
-          {step === 2 && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-[1fr_auto_auto] gap-x-2 gap-y-2 items-center">
-                <span className="text-xs font-medium text-gray-500">Type name</span>
-                <span className="text-xs font-medium text-gray-500 w-28 text-center">Cost to make</span>
-                <span className="w-7" />
-
-                {variants.map((v, i) => (
-                  <>
-                    <Input
-                      key={`name-${i}`}
-                      value={v.name}
-                      onChange={(e) => setVariantField(i, 'name', e.target.value)}
-                      placeholder={i === 0 ? 'e.g. Oat' : i === 1 ? 'e.g. Double Choc' : `Type ${i + 1}`}
-                      className="min-h-10 text-base"
-                      autoFocus={i === variants.length - 1 && i > 0}
-                    />
-                    <Input
-                      key={`cost-${i}`}
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={v.cost}
-                      onChange={(e) => setVariantField(i, 'cost', e.target.value)}
-                      placeholder="0.00"
-                      className="min-h-10 text-sm w-28 shrink-0"
-                    />
-                    <div key={`del-${i}`} className="w-7 flex justify-center">
+            {/* ── Step 2: Variants (types) ─────────────────────────── */}
+            {step === 2 && (
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  {variants.map((v, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Input
+                        value={v.name}
+                        onChange={(e) => setVariantName(i, e.target.value)}
+                        placeholder={i === 0 ? 'e.g. Oat' : i === 1 ? 'e.g. Double Choc' : `Type ${i + 1}`}
+                        className="min-h-10 text-base"
+                        autoFocus={i === variants.length - 1 && i > 0}
+                      />
                       {variants.length > 1 && (
                         <button
                           type="button"
@@ -503,115 +517,105 @@ export function ProductsPageClient({
                         </button>
                       )}
                     </div>
-                  </>
-                ))}
-              </div>
+                  ))}
+                </div>
 
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={addVariantRow}
-              >
-                <Plus size={14} className="mr-1" />
-                Add another type
-              </Button>
+                <Button type="button" variant="outline" size="sm" onClick={addVariantRow}>
+                  <Plus size={14} className="mr-1" />
+                  Add another type
+                </Button>
 
-              <div className="flex justify-between pt-2">
-                <Button variant="outline" onClick={goBack}>Back</Button>
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    onClick={() => { setVariants(emptyVariants()); setStep(3) }}
-                    className="text-gray-500"
-                  >
-                    Skip
-                  </Button>
-                  <Button onClick={goNext} className="bg-amber-600 hover:bg-amber-700">
-                    Next
-                    <ChevronRight size={16} className="ml-1" />
-                  </Button>
+                <div className="flex justify-between pt-2">
+                  <Button variant="outline" onClick={goBack}>Back</Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      onClick={() => { setVariants(emptyVariants()); setStep(3) }}
+                      className="text-gray-500"
+                    >
+                      Skip
+                    </Button>
+                    <Button onClick={goNext} style={{ backgroundColor: 'var(--brand)' }}>
+                      Next
+                      <ChevronRight size={16} className="ml-1" />
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* ── Step 3: Add-ons ──────────────────────────────────────── */}
-          {step === 3 && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-[1fr_auto_auto] gap-x-2 gap-y-2 items-center">
-                <span className="text-xs font-medium text-gray-500">Extra name</span>
-                <span className="text-xs font-medium text-gray-500 w-28 text-center">Extra charge</span>
-                <span className="w-7" />
+            {/* ── Step 3: Add-ons ──────────────────────────────────── */}
+            {step === 3 && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-[1fr_auto_auto] gap-x-2 gap-y-2 items-center">
+                  <span className="text-xs font-medium text-gray-500">Extra name</span>
+                  <span className="text-xs font-medium text-gray-500 w-28 text-center">Extra charge</span>
+                  <span className="w-7" />
 
-                {addons.map((a, i) => (
-                  <>
-                    <Input
-                      key={`aname-${i}`}
-                      value={a.name}
-                      onChange={(e) => setAddonField(i, 'name', e.target.value)}
-                      placeholder={i === 0 ? 'e.g. Nuts' : i === 1 ? 'e.g. Coconut' : `Extra ${i + 1}`}
-                      className="min-h-10 text-base"
-                      autoFocus={i === addons.length - 1 && i > 0}
-                    />
-                    <Input
-                      key={`acost-${i}`}
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={a.extraCost}
-                      onChange={(e) => setAddonField(i, 'extraCost', e.target.value)}
-                      placeholder="0.00"
-                      className="min-h-10 text-sm w-28 shrink-0"
-                    />
-                    <div key={`adel-${i}`} className="w-7 flex justify-center">
-                      {addons.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeAddonRow(i)}
-                          className="text-gray-300 hover:text-red-500 transition-colors"
-                          aria-label={`Remove extra ${i + 1}`}
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </>
-                ))}
-              </div>
+                  {addons.map((a, i) => (
+                    <>
+                      <Input
+                        key={`aname-${i}`}
+                        value={a.name}
+                        onChange={(e) => setAddonField(i, 'name', e.target.value)}
+                        placeholder={i === 0 ? 'e.g. Nuts' : i === 1 ? 'e.g. Coconut' : `Extra ${i + 1}`}
+                        className="min-h-10 text-base"
+                        autoFocus={i === addons.length - 1 && i > 0}
+                      />
+                      <Input
+                        key={`acost-${i}`}
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={a.extraCost}
+                        onChange={(e) => setAddonField(i, 'extraCost', e.target.value)}
+                        placeholder="0.00"
+                        className="min-h-10 text-sm w-28 shrink-0"
+                      />
+                      <div key={`adel-${i}`} className="w-7 flex justify-center">
+                        {addons.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeAddonRow(i)}
+                            className="text-gray-300 hover:text-red-500 transition-colors"
+                            aria-label={`Remove extra ${i + 1}`}
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  ))}
+                </div>
 
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={addAddonRow}
-              >
-                <Plus size={14} className="mr-1" />
-                Add another extra
-              </Button>
+                <Button type="button" variant="outline" size="sm" onClick={addAddonRow}>
+                  <Plus size={14} className="mr-1" />
+                  Add another extra
+                </Button>
 
-              <div className="flex justify-between pt-2">
-                <Button variant="outline" onClick={goBack}>Back</Button>
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    onClick={() => { setAddons(emptyAddons()); void handleSave() }}
-                    className="text-gray-500"
-                    disabled={isSubmitting}
-                  >
-                    Skip & save
-                  </Button>
-                  <Button
-                    onClick={() => void handleSave()}
-                    className="bg-amber-600 hover:bg-amber-700"
-                    disabled={isSubmitting}
-                  >
-                    {isSubmitting ? 'Saving…' : 'Save product'}
-                  </Button>
+                <div className="flex justify-between pt-2">
+                  <Button variant="outline" onClick={goBack}>Back</Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      onClick={() => { setAddons(emptyAddons()); void handleSave() }}
+                      className="text-gray-500"
+                      disabled={isSubmitting}
+                    >
+                      Skip and save
+                    </Button>
+                    <Button
+                      onClick={() => void handleSave()}
+                      style={{ backgroundColor: 'var(--brand)' }}
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? 'Saving…' : 'Save product'}
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

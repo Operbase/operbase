@@ -657,8 +657,8 @@ export function SalesPageClient({
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Sales</h1>
           <p className="text-gray-600 mt-1">
-            Log each sale and the price. Pick a production run when you can — we keep “what is left” accurate
-            and show whether you made money.
+            Log each sale and the price. Pick a production run when you can. We keep your stock accurate and show
+            whether you made money.
           </p>
         </div>
 
@@ -677,7 +677,7 @@ export function SalesPageClient({
                 key={d}
                 variant={dateRange === d ? 'default' : 'outline'}
                 size="sm"
-                className={dateRange === d ? 'bg-amber-600 hover:bg-amber-700' : ''}
+                style={dateRange === d ? { backgroundColor: 'var(--brand)', borderColor: 'var(--brand)' } : undefined}
                 onClick={() => setDateRange(d)}
               >
                 {d === 'month' ? 'Last month' : d === 'week' ? 'Last week' : 'All time'}
@@ -689,16 +689,23 @@ export function SalesPageClient({
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button size="lg" className="bg-amber-600 hover:bg-amber-700 min-h-12 text-base shrink-0">
+              <Button size="lg" className="min-h-12 text-base shrink-0 text-white hover:opacity-90" style={{ backgroundColor: 'var(--brand)' }}>
                 <Plus size={20} className="mr-2" />
                 Log sale
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-lg">
-              <DialogHeader>
-                <DialogTitle className="text-xl">{editingSale ? 'Change sale' : 'Log sale'}</DialogTitle>
-              </DialogHeader>
-              <form noValidate onSubmit={handleSave} className="space-y-4">
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg p-0">
+              <div
+                className="px-6 pt-5 pb-4 sticky top-0 z-10"
+                style={{ backgroundColor: 'var(--brand-light)', borderBottom: '1px solid var(--brand-mid)' }}
+              >
+                <DialogHeader>
+                  <DialogTitle className="text-xl font-semibold" style={{ color: 'var(--brand-dark)' }}>
+                    {editingSale ? 'Change sale' : 'Log sale'}
+                  </DialogTitle>
+                </DialogHeader>
+              </div>
+              <form noValidate onSubmit={handleSave} className="space-y-4 px-6 py-5">
                 <div className="space-y-2">
                   <Label className="text-base">What are you selling?</Label>
                   <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
@@ -802,9 +809,10 @@ export function SalesPageClient({
                           className={cn(
                             'px-3 py-1.5 rounded-full text-sm border transition-colors',
                             selectedVariantId === v.id
-                              ? 'bg-amber-600 text-white border-amber-600'
-                              : 'bg-white text-gray-700 border-gray-300 hover:border-amber-400'
+                              ? 'text-white border-transparent'
+                              : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
                           )}
+                          style={selectedVariantId === v.id ? { backgroundColor: 'var(--brand)', borderColor: 'var(--brand)' } : undefined}
                         >
                           {v.name}
                         </button>
@@ -834,9 +842,10 @@ export function SalesPageClient({
                             className={cn(
                               'px-3 py-1.5 rounded-full text-sm border transition-colors',
                               checked
-                                ? 'bg-amber-600 text-white border-amber-600'
-                                : 'bg-white text-gray-700 border-gray-300 hover:border-amber-400'
+                                ? 'text-white border-transparent'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
                             )}
+                            style={checked ? { backgroundColor: 'var(--brand)', borderColor: 'var(--brand)' } : undefined}
                           >
                             {a.name}
                             {a.extra_cost != null && a.extra_cost > 0
@@ -892,7 +901,7 @@ export function SalesPageClient({
                   />
                 </div>
                 {form.unitsSold && form.unitPrice && (
-                  <p className="text-base text-gray-800 bg-amber-50 border border-amber-100 p-3 rounded-lg">
+                  <p className="text-base text-gray-800 p-3 rounded-lg border" style={{ backgroundColor: 'var(--brand-light)', borderColor: 'var(--brand-mid)' }}>
                     Total:{' '}
                     <strong className="text-lg">
                       {formatCurrency(parseFloat(form.unitsSold || '0') * parseFloat(form.unitPrice || '0'), currency)}
@@ -991,7 +1000,7 @@ export function SalesPageClient({
                 <Button
                   type="submit"
                   size="lg"
-                  className="w-full bg-amber-600 hover:bg-amber-700 min-h-12 text-base"
+                  className="w-full min-h-12 text-base text-white hover:opacity-90" style={{ backgroundColor: 'var(--brand)' }}
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? (
@@ -1034,7 +1043,7 @@ export function SalesPageClient({
               </div>
             </CardContent>
           </Card>
-          <Card className="border-2 border-amber-300 bg-amber-50/50 shadow-sm">
+          <Card className="border-2 shadow-sm" style={{ borderColor: 'var(--brand-mid)', backgroundColor: 'var(--brand-light)' }}>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-gray-800">You kept</CardTitle>
             </CardHeader>

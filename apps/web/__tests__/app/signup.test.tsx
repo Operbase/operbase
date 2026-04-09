@@ -134,7 +134,10 @@ describe('SignupPage — step 2 (confirm)', () => {
     await user.click(screen.getByRole('button', { name: /create account/i }))
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith('Email already registered')
+      expect(toast.error).toHaveBeenCalledWith(
+        'An account with this email already exists.',
+        expect.objectContaining({ description: expect.stringContaining('Sign in') })
+      )
     })
   })
 })

@@ -41,6 +41,14 @@ import { friendlyError } from '@/lib/errors'
 type Item = StockItemRow
 type Unit = StockUnitRow
 
+// Ratio = how many usage units fit in one purchase unit
+// e.g. kilogram → gram: 1 kg = 1000 g, ratio = 1000
+const KNOWN_RATIOS: Record<string, number> = {
+  'kilogram→gram': 1000,
+  'litre→millilitre': 1000,
+  'dozen→piece': 12,
+}
+
 function unitIdByName(units: Unit[], unitName: string): string {
   const n = unitName.toLowerCase()
   return units.find((u) => u.name.toLowerCase() === n)?.id ?? ''
@@ -98,6 +106,23 @@ export function StockPageClient({
     () => (activeTab === 'ingredient' ? COMMON_INGREDIENTS : COMMON_PACKAGING),
     [activeTab]
   )
+
+  // Auto-fill conversion ratio for known unit pairs
+  useEffect(() => {
+    if (!form.purchaseUnitId || !form.usageUnitId) return
+    if (form.purchaseUnitId === form.usageUnitId) {
+      setForm((f) => ({ ...f, conversionRatio: '1' }))
+      return
+    }
+    const pName = units.find((u) => u.id === form.purchaseUnitId)?.name?.toLowerCase() ?? ''
+    const uName = units.find((u) => u.id === form.usageUnitId)?.name?.toLowerCase() ?? ''
+    const key = `${pName}→${uName}`
+    const known = KNOWN_RATIOS[key]
+    if (known) {
+      setForm((f) => ({ ...f, conversionRatio: String(known) }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.purchaseUnitId, form.usageUnitId])
 
   const fetchItems = useCallback(async () => {
     if (!businessId) return
@@ -241,7 +266,9 @@ export function StockPageClient({
     setEditingItem(null)
     const uid = unitIdByName(units, preset.unit)
     if (!uid) {
-      toast.error(`We couldn't find a unit called “${preset.unit}”. Tap “Other item” to add this ingredient and pick your own unit.`)
+      toast.error(
+        `We couldn't find a unit called "${preset.unit}". Tap "${activeTab === 'ingredient' ? 'Other ingredient' : 'Other packaging'}" to add this and pick your own unit.`
+      )
       return
     }
     setForm({
@@ -282,14 +309,14 @@ export function StockPageClient({
 
     const ratio = parseFloat(form.conversionRatio)
     if (!ratio || ratio <= 0) {
-      toast.error('Enter how many recipe units fit in one purchase unit — must be more than zero')
+      toast.error('Conversion ratio must be more than zero')
       return
     }
 
     const purchaseId = form.purchaseUnitId || null
     const usageId = form.usageUnitId || null
     if (!purchaseId || !usageId) {
-      toast.error('Choose how you buy it and how you measure it in recipes (or use a shortcut button)')
+      toast.error('Choose how you buy it and how you measure it in recipes')
       return
     }
 
@@ -373,7 +400,6 @@ export function StockPageClient({
       return
     }
 
-    // Use the entered price; fall back to the stored price if blank
     const enteredCost = parseFloat(restockCostPerPurchase)
     const costPerPurchase =
       enteredCost > 0 ? enteredCost : restockItem.cost_per_unit
@@ -394,8 +420,6 @@ export function StockPageClient({
 
       if (error) throw error
 
-      // Keep the item's cost_per_unit in sync with the latest purchase price
-      // so batch costing always uses the current market price
       if (costPerPurchase !== restockItem.cost_per_unit) {
         await supabase
           .from('items')
@@ -425,8 +449,16 @@ export function StockPageClient({
   const lowStockCount = displayItems.filter(isLowStock).length
   const purchaseIsCup = restockItem?.purchase_unit_name?.toLowerCase() === 'cup'
 
-  const recipeUnitLabel =
-    units.find((u) => u.id === form.usageUnitId)?.name ?? 'recipe unit'
+  // Derived values for the add/edit form
+  const purchaseUnitName = units.find((u) => u.id === form.purchaseUnitId)?.name ?? ''
+  const usageUnitName = units.find((u) => u.id === form.usageUnitId)?.name ?? ''
+  const sameUnit = form.purchaseUnitId && form.purchaseUnitId === form.usageUnitId
+  const autoRatioKey = `${purchaseUnitName.toLowerCase()}→${usageUnitName.toLowerCase()}`
+  const autoRatio = !sameUnit ? KNOWN_RATIOS[autoRatioKey] : undefined
+  const showRatioInput = form.purchaseUnitId && form.usageUnitId && !sameUnit && !autoRatio
+
+  const costPreviewPurchase = parseFloat(form.costPerPurchase)
+  const costPreviewRatio = parseFloat(form.conversionRatio) || 1
 
   const restockLive = useMemo(() => {
     if (!restockItem) return null
@@ -441,41 +473,92 @@ export function StockPageClient({
     return { totalSpend, perRecipe, usageAdded }
   }, [restockItem, restockPurchaseQty, restockCostPerPurchase])
 
+  const addButtonLabel = activeTab === 'ingredient' ? 'Other ingredient' : 'Other packaging'
+  const dialogTitle = editingItem
+    ? `Change ${editingItem.name}`
+    : activeTab === 'ingredient'
+      ? 'Add ingredient'
+      : 'Add packaging'
+
   return (
     <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Stock</h1>
-          <p className="text-gray-600 mt-1">
-            When you buy something, add it here in the words you’d say out loud (“2 bags of flour”). We show
-            what each cup, gram, or piece costs you so recipes stay honest.
-          </p>
-        </div>
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">Stock</h1>
+        <p className="text-gray-600 mt-1">
+          When you buy something, add it here. We show what each gram, cup, or piece costs you so
+          production stays honest.
+        </p>
+      </div>
 
-        <div className="flex flex-wrap gap-3 items-center">
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={openAddBlank} size="lg" className="bg-amber-600 hover:bg-amber-700 min-h-12">
-                <Plus className="mr-2" size={20} />
-                Other item…
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
+      <div className="flex flex-wrap gap-3 items-center">
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button
+              onClick={openAddBlank}
+              size="lg"
+              style={{ backgroundColor: 'var(--brand)' }}
+              className="min-h-12 text-white hover:opacity-90"
+            >
+              <Plus className="mr-2" size={20} />
+              {addButtonLabel}
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md p-0">
+            {/* Branded header */}
+            <div
+              className="px-6 py-4 rounded-t-lg"
+              style={{
+                backgroundColor: 'var(--brand-light)',
+                borderBottom: '1px solid var(--brand-mid)',
+              }}
+            >
               <DialogHeader>
-                <DialogTitle>{editingItem ? 'Change item' : 'Add item'}</DialogTitle>
+                <DialogTitle className="text-lg font-semibold" style={{ color: 'var(--brand-dark)' }}>
+                  {dialogTitle}
+                </DialogTitle>
               </DialogHeader>
+            </div>
+            <div className="px-6 py-5">
               <form noValidate onSubmit={handleSave} className="space-y-4">
+                {/* Name */}
                 <div>
                   <Label htmlFor="name">What is it?</Label>
                   <Input
                     id="name"
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="e.g. Bread flour, large eggs, takeaway boxes"
-                    className="min-h-11 text-base"
+                    placeholder={
+                      activeTab === 'ingredient'
+                        ? 'e.g. Bread flour, large eggs'
+                        : 'e.g. Takeaway boxes, paper bags'
+                    }
+                    className="min-h-11 text-base mt-1"
                   />
                 </div>
+
+                {/* Purchase unit */}
                 <div>
-                  <Label htmlFor="cost">What you pay for one purchase</Label>
+                  <Label htmlFor="purchaseUnit">How you buy it</Label>
+                  <select
+                    id="purchaseUnit"
+                    value={form.purchaseUnitId}
+                    onChange={(e) => setForm({ ...form, purchaseUnitId: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-base min-h-11 mt-1"
+                  >
+                    <option value="">Select unit</option>
+                    {units.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Cost per purchase */}
+                <div>
+                  <Label htmlFor="cost">
+                    What you paid for one {purchaseUnitName || 'purchase'}
+                  </Label>
                   <Input
                     id="cost"
                     type="number"
@@ -484,21 +567,75 @@ export function StockPageClient({
                     inputMode="decimal"
                     value={form.costPerPurchase}
                     onChange={(e) => setForm({ ...form, costPerPurchase: e.target.value })}
-                    placeholder="0"
-                    className="min-h-11 text-base"
+                    placeholder="0.00"
+                    className="min-h-11 text-base mt-1"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
-                    What you paid for one bag, crate, or pack, in {currency}. We work out cost per recipe unit
-                    from this.
-                  </p>
                 </div>
+
+                {/* Usage unit */}
+                <div>
+                  <Label htmlFor="usageUnit">How you measure it in recipes</Label>
+                  <select
+                    id="usageUnit"
+                    value={form.usageUnitId}
+                    onChange={(e) => setForm({ ...form, usageUnitId: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-base min-h-11 mt-1"
+                  >
+                    <option value="">Select unit</option>
+                    {units.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                  {sameUnit && purchaseUnitName && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Tracking in {purchaseUnitName} — same as how you buy it.
+                    </p>
+                  )}
+                  {autoRatio && !sameUnit && (
+                    <p className="text-xs mt-1" style={{ color: 'var(--brand-dark)' }}>
+                      1 {purchaseUnitName} = {autoRatio} {usageUnitName} — we have worked this out for you.
+                    </p>
+                  )}
+                </div>
+
+                {/* Ratio input — only for unknown unit pairs */}
+                {showRatioInput && (
+                  <div>
+                    <Label htmlFor="ratio">
+                      How many {usageUnitName || 'units'} in one {purchaseUnitName || 'purchase unit'}?
+                    </Label>
+                    <Input
+                      id="ratio"
+                      type="number"
+                      step="0.000001"
+                      min="0.000001"
+                      inputMode="decimal"
+                      value={form.conversionRatio}
+                      onChange={(e) => setForm({ ...form, conversionRatio: e.target.value })}
+                      placeholder="e.g. 4"
+                      className="min-h-11 mt-1"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      e.g. if 1 bag holds 4 cups, enter 4
+                    </p>
+                  </div>
+                )}
+
+                {/* Opening qty — new items only */}
                 {!editingItem && (
                   <div>
-                    <Label htmlFor="openingQty">Starting amount (same unit as above)</Label>
+                    <Label htmlFor="openingQty">
+                      How many did you buy?
+                    </Label>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      In {purchaseUnitName || 'purchase units'} — this sets your starting stock
+                    </p>
                     <WholeNumberChips
                       values={[1, 2, 5, 10]}
                       onPick={(n) => setForm((f) => ({ ...f, openingPurchaseQty: String(n) }))}
-                      className="mb-2"
+                      className="my-2"
                     />
                     <Input
                       id="openingQty"
@@ -513,58 +650,41 @@ export function StockPageClient({
                   </div>
                 )}
 
+                {/* Cost preview */}
+                {costPreviewPurchase > 0 && (
+                  <div
+                    className="rounded-lg border p-3 space-y-1.5 text-sm"
+                    style={{
+                      borderColor: 'var(--brand-mid)',
+                      backgroundColor: 'var(--brand-light)',
+                    }}
+                  >
+                    <div className="flex justify-between gap-3">
+                      <span className="text-gray-700">Per {purchaseUnitName || 'purchase'}</span>
+                      <strong className="tabular-nums" style={{ color: 'var(--brand-dark)' }}>
+                        {formatCurrency(costPreviewPurchase, currency)}
+                      </strong>
+                    </div>
+                    {!sameUnit && costPreviewRatio > 0 && usageUnitName && (
+                      <div className="flex justify-between gap-3">
+                        <span className="text-gray-700">Per {usageUnitName}</span>
+                        <strong className="tabular-nums" style={{ color: 'var(--brand-dark)' }}>
+                          {formatCurrency(
+                            costPerUsageUnit(costPreviewPurchase, costPreviewRatio),
+                            currency
+                          )}
+                        </strong>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Advanced options */}
                 <details className="text-sm border rounded-lg p-3 bg-gray-50">
                   <summary className="cursor-pointer font-medium text-gray-800 py-1">
-                    Buy in bags but measure in cups? Tap here
+                    More options
                   </summary>
                   <div className="space-y-3 pt-3 mt-2 border-t">
-                    <div className="grid grid-cols-1 gap-3">
-                      <div>
-                        <Label htmlFor="purchaseUnit">How you buy it (e.g. bag, carton)</Label>
-                        <select
-                          id="purchaseUnit"
-                          value={form.purchaseUnitId}
-                          onChange={(e) => setForm({ ...form, purchaseUnitId: e.target.value })}
-                          className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-base min-h-11"
-                        >
-                          <option value="">Select unit</option>
-                          {units.map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <Label htmlFor="usageUnit">How you measure it in recipes (e.g. cups, grams)</Label>
-                        <select
-                          id="usageUnit"
-                          value={form.usageUnitId}
-                          onChange={(e) => setForm({ ...form, usageUnitId: e.target.value })}
-                          className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-base min-h-11"
-                        >
-                          <option value="">Select unit</option>
-                          {units.map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                    <div>
-                      <Label htmlFor="ratio">How many of the recipe unit fit in one purchase unit?</Label>
-                      <Input
-                        id="ratio"
-                        type="number"
-                        step="0.000001"
-                        min="0.000001"
-                        inputMode="decimal"
-                        value={form.conversionRatio}
-                        onChange={(e) => setForm({ ...form, conversionRatio: e.target.value })}
-                        className="min-h-11"
-                      />
-                    </div>
                     <div>
                       <Label htmlFor="lowStock">Alert me when at or below (optional)</Label>
                       <Input
@@ -574,7 +694,7 @@ export function StockPageClient({
                         min="0"
                         value={form.lowStockThreshold}
                         onChange={(e) => setForm({ ...form, lowStockThreshold: e.target.value })}
-                        className="min-h-11"
+                        className="min-h-11 mt-1"
                       />
                     </div>
                     <div>
@@ -583,125 +703,121 @@ export function StockPageClient({
                         id="notes"
                         value={form.notes}
                         onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                        className="min-h-11"
+                        className="min-h-11 mt-1"
                       />
                     </div>
                   </div>
                 </details>
 
-                {form.costPerPurchase && form.conversionRatio && parseFloat(form.conversionRatio) > 0 && (
-                  <div className="text-sm bg-amber-50 border border-amber-100 p-3 rounded-lg space-y-1">
-                    <p className="text-gray-800">
-                      <strong className="text-lg tabular-nums">
-                        {formatCurrency(
-                          costPerUsageUnit(
-                            parseFloat(form.costPerPurchase) || 0,
-                            parseFloat(form.conversionRatio) || 1
-                          ),
-                          currency
-                        )}
-                      </strong>
-                      <span className="text-gray-600 font-normal">
-                        {' '}
-                        per {recipeUnitLabel}
-                      </span>
-                    </p>
-                    <p className="text-xs text-gray-600">
-                      That’s what we’ll use when you record production or check if a price makes sense.
-                    </p>
-                  </div>
-                )}
-
-                <Button type="submit" size="lg" className="w-full bg-amber-600 hover:bg-amber-700 min-h-12 text-base" disabled={isSubmitting}>
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="w-full min-h-12 text-base text-white hover:opacity-90"
+                  style={{ backgroundColor: 'var(--brand)' }}
+                  disabled={isSubmitting}
+                >
                   {isSubmitting ? (
-                    <><Loader2 size={18} className="mr-2 animate-spin" />Saving…</>
-                  ) : editingItem ? 'Save changes' : 'Save'}
+                    <>
+                      <Loader2 size={18} className="mr-2 animate-spin" />
+                      Saving…
+                    </>
+                  ) : editingItem ? (
+                    'Save changes'
+                  ) : (
+                    'Save'
+                  )}
                 </Button>
               </form>
-            </DialogContent>
-          </Dialog>
-        </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
 
-        {/* Search */}
-        <div className="flex gap-3">
-          <Input
-            type="search"
-            placeholder="Search by name…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="max-w-xs min-h-10"
-          />
-        </div>
+      {/* Search */}
+      <div className="flex gap-3">
+        <Input
+          type="search"
+          placeholder="Search by name…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="max-w-xs min-h-10"
+        />
+      </div>
 
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'ingredient' | 'packaging' | 'weekly')}>
-          <TabsList className="h-12 w-full sm:w-auto">
-            <TabsTrigger value="ingredient" className="text-base px-6">
-              Ingredients
-            </TabsTrigger>
-            <TabsTrigger value="packaging" className="text-base px-6">
-              Packaging
-            </TabsTrigger>
-            <TabsTrigger value="weekly" className="text-base px-6">
-              This week
-            </TabsTrigger>
-          </TabsList>
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as 'ingredient' | 'packaging' | 'weekly')}
+      >
+        <TabsList className="h-12 w-full sm:w-auto">
+          <TabsTrigger value="ingredient" className="text-base px-6">
+            Ingredients
+          </TabsTrigger>
+          <TabsTrigger value="packaging" className="text-base px-6">
+            Packaging
+          </TabsTrigger>
+          <TabsTrigger value="weekly" className="text-base px-6">
+            This week
+          </TabsTrigger>
+        </TabsList>
 
-          <TabsContent value="weekly" className="mt-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg">What moved this week</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {weeklyLoading ? (
-                  <p className="text-center text-gray-500 py-8">Loading…</p>
-                ) : weeklyRows.length === 0 ? (
-                  <p className="text-center text-gray-500 py-8">
-                    No stock movement recorded this week yet.
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Item</TableHead>
-                          <TableHead className="text-right tabular-nums">Start of week</TableHead>
-                          <TableHead className="text-right tabular-nums">Used</TableHead>
-                          <TableHead className="text-right tabular-nums">Added</TableHead>
-                          <TableHead className="text-right tabular-nums">On hand now</TableHead>
+        <TabsContent value="weekly" className="mt-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg">What moved this week</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {weeklyLoading ? (
+                <p className="text-center text-gray-500 py-8">Loading…</p>
+              ) : weeklyRows.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">
+                  No stock movement recorded this week yet.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item</TableHead>
+                        <TableHead className="text-right tabular-nums">Start of week</TableHead>
+                        <TableHead className="text-right tabular-nums">Used</TableHead>
+                        <TableHead className="text-right tabular-nums">Added</TableHead>
+                        <TableHead className="text-right tabular-nums">On hand now</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {weeklyRows.map((row) => (
+                        <TableRow key={row.itemId}>
+                          <TableCell className="font-medium">
+                            {row.name}
+                            {row.usageUnitName ? (
+                              <span className="text-xs text-gray-500 ml-1">
+                                ({row.usageUnitName})
+                              </span>
+                            ) : null}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-gray-600">
+                            {row.startOfWeek.toFixed(1)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-red-700">
+                            {row.usedThisWeek > 0 ? `-${row.usedThisWeek.toFixed(1)}` : '—'}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-green-700">
+                            {row.addedThisWeek > 0 ? `+${row.addedThisWeek.toFixed(1)}` : '—'}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums font-medium">
+                            {row.onHandNow.toFixed(1)}
+                          </TableCell>
                         </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {weeklyRows.map((row) => (
-                          <TableRow key={row.itemId}>
-                            <TableCell className="font-medium">
-                              {row.name}
-                              {row.usageUnitName ? (
-                                <span className="text-xs text-gray-500 ml-1">({row.usageUnitName})</span>
-                              ) : null}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums text-gray-600">
-                              {row.startOfWeek.toFixed(1)}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums text-red-700">
-                              {row.usedThisWeek > 0 ? `-${row.usedThisWeek.toFixed(1)}` : '—'}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums text-green-700">
-                              {row.addedThisWeek > 0 ? `+${row.addedThisWeek.toFixed(1)}` : '—'}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums font-medium">
-                              {row.onHandNow.toFixed(1)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-          {activeTab !== 'weekly' && (
+        {activeTab !== 'weekly' && (
           <TabsContent value={activeTab} className="mt-4 space-y-4">
             <div>
               <p className="text-sm font-medium text-gray-700 mb-2">Quick add</p>
@@ -726,12 +842,11 @@ export function StockPageClient({
                 <strong className="text-gray-900">{displayItems.length}</strong> items
               </span>
               <span>
-                Stock value ~<strong className="text-gray-900">{formatCurrency(totalValue, currency)}</strong>
+                Stock value ~
+                <strong className="text-gray-900">{formatCurrency(totalValue, currency)}</strong>
               </span>
               {lowStockCount > 0 && (
-                <span className="text-orange-700 font-medium">
-                  {lowStockCount} need attention
-                </span>
+                <span className="text-orange-700 font-medium">{lowStockCount} need attention</span>
               )}
             </div>
 
@@ -744,7 +859,9 @@ export function StockPageClient({
                   <p className="text-center text-gray-500 py-8">Loading…</p>
                 ) : displayItems.length === 0 ? (
                   <p className="text-center text-gray-500 py-8">
-                    Nothing added yet. Tap a preset above, or tap "Other item" to add your first ingredient.
+                    Nothing added yet. Tap a preset above, or tap &quot;
+                    {addButtonLabel}&quot; to add your first{' '}
+                    {activeTab === 'ingredient' ? 'ingredient' : 'packaging item'}.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
@@ -787,8 +904,8 @@ export function StockPageClient({
                                 <div className="flex flex-wrap gap-2 justify-end">
                                   <Button
                                     size="lg"
-                                    variant="default"
-                                    className="bg-amber-600 hover:bg-amber-700 min-h-11"
+                                    className="min-h-11 text-white hover:opacity-90"
+                                    style={{ backgroundColor: 'var(--brand)' }}
                                     onClick={() => {
                                       setRestockItem(item)
                                       setRestockPurchaseQty('')
@@ -798,7 +915,12 @@ export function StockPageClient({
                                   >
                                     Add stock
                                   </Button>
-                                  <Button size="lg" variant="outline" className="min-h-11" onClick={() => openEdit(item)}>
+                                  <Button
+                                    size="lg"
+                                    variant="outline"
+                                    className="min-h-11"
+                                    onClick={() => openEdit(item)}
+                                  >
                                     Edit
                                   </Button>
                                   <Button
@@ -844,14 +966,27 @@ export function StockPageClient({
               </CardContent>
             </Card>
           </TabsContent>
-          )}
-        </Tabs>
+        )}
+      </Tabs>
 
-        <Dialog open={restockDialogOpen} onOpenChange={setRestockDialogOpen}>
-          <DialogContent className="sm:max-w-md">
+      {/* Restock dialog */}
+      <Dialog open={restockDialogOpen} onOpenChange={setRestockDialogOpen}>
+        <DialogContent className="sm:max-w-md p-0">
+          {/* Branded header */}
+          <div
+            className="px-6 py-4 rounded-t-lg"
+            style={{
+              backgroundColor: 'var(--brand-light)',
+              borderBottom: '1px solid var(--brand-mid)',
+            }}
+          >
             <DialogHeader>
-              <DialogTitle className="text-xl">Add stock: {restockItem?.name}</DialogTitle>
+              <DialogTitle className="text-lg font-semibold" style={{ color: 'var(--brand-dark)' }}>
+                Add stock: {restockItem?.name}
+              </DialogTitle>
             </DialogHeader>
+          </div>
+          <div className="px-6 py-5">
             <form noValidate onSubmit={handleRestock} className="space-y-4">
               <p className="text-sm text-gray-600">
                 Count in <strong>{restockItem?.purchase_unit_name}</strong>
@@ -916,7 +1051,13 @@ export function StockPageClient({
                 />
               </div>
               {restockLive && restockItem ? (
-                <div className="rounded-lg border border-amber-100 bg-amber-50/70 p-3 text-sm space-y-2">
+                <div
+                  className="rounded-lg border p-3 text-sm space-y-2"
+                  style={{
+                    borderColor: 'var(--brand-mid)',
+                    backgroundColor: 'var(--brand-light)',
+                  }}
+                >
                   <div className="flex justify-between gap-3 text-gray-800">
                     <span>Total for this add</span>
                     <strong className="tabular-nums">
@@ -925,26 +1066,39 @@ export function StockPageClient({
                   </div>
                   <div className="flex justify-between gap-3 text-gray-700 text-xs">
                     <span>
-                      Adds ~{restockLive.usageAdded.toFixed(1)} {restockItem.usage_unit_name} to stock
+                      Adds ~{restockLive.usageAdded.toFixed(1)} {restockItem.usage_unit_name} to
+                      stock
                     </span>
                   </div>
-                  <p className="text-xs text-gray-600 border-t border-amber-100 pt-2">
-                    After you save, each {restockItem.usage_unit_name} costs{' '}
-                    <strong className="text-gray-900">
-                      {formatCurrency(restockLive.perRecipe, currency)}
-                    </strong>
-                    .
+                  <p
+                    className="text-xs border-t pt-2"
+                    style={{ borderColor: 'var(--brand-mid)', color: 'var(--brand-dark)' }}
+                  >
+                    Each {restockItem.usage_unit_name} will cost{' '}
+                    <strong>{formatCurrency(restockLive.perRecipe, currency)}</strong>.
                   </p>
                 </div>
               ) : null}
-              <Button type="submit" size="lg" className="w-full bg-amber-600 hover:bg-amber-700 min-h-12 text-base" disabled={isSubmitting}>
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full min-h-12 text-base text-white hover:opacity-90"
+                style={{ backgroundColor: 'var(--brand)' }}
+                disabled={isSubmitting}
+              >
                 {isSubmitting ? (
-                  <><Loader2 size={18} className="mr-2 animate-spin" />Adding…</>
-                ) : 'Add to stock'}
+                  <>
+                    <Loader2 size={18} className="mr-2 animate-spin" />
+                    Adding…
+                  </>
+                ) : (
+                  'Add to stock'
+                )}
               </Button>
             </form>
-          </DialogContent>
-        </Dialog>
-      </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

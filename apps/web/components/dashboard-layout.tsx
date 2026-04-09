@@ -13,13 +13,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Menu, LogOut, Home, Package, ChefHat, ShoppingBag, Settings, X, HelpCircle, Tag } from 'lucide-react'
+import { Menu, LogOut, Home, Package, ChefHat, ShoppingBag, Settings, X, HelpCircle, Tag, KeyRound } from 'lucide-react'
 import { signOut } from '@/lib/auth'
 import { toast } from 'sonner'
 import { useBusinessContext } from '@/providers/business-provider'
 import { createClient } from '@/lib/supabase/client'
 import { businessInitials } from '@/lib/brand/business-initials'
 import { DashboardBrandCss } from '@/components/dashboard-brand-css'
+import { GlobalQuickLog } from '@/components/global-quick-log'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -138,8 +139,8 @@ function DashboardLayoutInner({ children, userEmail, userName }: DashboardLayout
               key={item.href}
               href={item.href}
               onClick={() => setSidebarOpen(false)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left min-h-[3.25rem] ${
-                isActive ? 'font-semibold text-white' : 'text-gray-700 hover:bg-gray-100'
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-150 text-left min-h-[3.25rem] ${
+                isActive ? 'font-semibold text-white shadow-sm' : 'text-gray-600 hover:bg-black/[0.04] hover:text-gray-900'
               }`}
               style={isActive ? { backgroundColor: brandColor } : undefined}
             >
@@ -186,6 +187,13 @@ function DashboardLayoutInner({ children, userEmail, userName }: DashboardLayout
                 ) : null}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/dashboard/settings">
+                  <KeyRound size={16} className="mr-2" />
+                  Change password
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout}>
                 <LogOut size={16} className="mr-2" />
                 Log out
@@ -208,10 +216,10 @@ function DashboardLayoutInner({ children, userEmail, userName }: DashboardLayout
   } as React.CSSProperties
 
   return (
-    <div className="flex h-screen bg-gray-50" data-dashboard style={brandStyle}>
+    <div className="flex h-screen" data-dashboard style={brandStyle}>
       <DashboardBrandCss brandColor={brandColor} />
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex flex-col w-64 bg-white shadow-sm border-r">
+      <aside className="hidden md:flex flex-col w-64 shadow-sm border-r border-gray-200/70">
         {Sidebar}
       </aside>
 
@@ -275,6 +283,13 @@ function DashboardLayoutInner({ children, userEmail, userName }: DashboardLayout
                 )}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/dashboard/settings" onClick={() => setSidebarOpen(false)}>
+                  <KeyRound size={16} className="mr-2" />
+                  Change password
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => {
                   setSidebarOpen(false)
@@ -290,7 +305,7 @@ function DashboardLayoutInner({ children, userEmail, userName }: DashboardLayout
         </header>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="p-4 md:p-8">{children}</div>
+          <div className="p-4 md:p-6 lg:p-8">{children}</div>
         </main>
       </div>
 
@@ -301,6 +316,8 @@ function DashboardLayoutInner({ children, userEmail, userName }: DashboardLayout
           onClick={() => setSidebarOpen(false)}
         />
       )}
+
+      <GlobalQuickLog />
     </div>
   )
 }

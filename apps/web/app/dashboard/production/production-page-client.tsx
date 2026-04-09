@@ -51,7 +51,6 @@ type ProductWithVariants = { id: string; name: string; variants: ProductVariantO
 interface LineRow {
   itemId: string
   quantity: string
-  /** Empty = FIFO from oldest purchase lot */
   purchaseLotId: string
 }
 
@@ -81,6 +80,8 @@ export function ProductionPageClient({
   const [form, setForm] = useState({
     productName: '',
     unitsProduced: '',
+    unitsSold: '',
+    salePrice: '',
     unitsGivenAway: '',
     notes: '',
     producedAt: formatCalendarDateInTimeZone(new Date(), timezone),
@@ -88,9 +89,7 @@ export function ProductionPageClient({
   const [lines, setLines] = useState<LineRow[]>([
     { itemId: '', quantity: '', purchaseLotId: '' },
   ])
-  const [lotOptionsByItem, setLotOptionsByItem] = useState<
-    Record<string, PurchaseLotOption[]>
-  >({})
+  const [lotOptionsByItem, setLotOptionsByItem] = useState<Record<string, PurchaseLotOption[]>>({})
   const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null)
   const [disposeTarget, setDisposeTarget] = useState<Batch | null>(null)
   const [disposeQty, setDisposeQty] = useState('')
@@ -106,20 +105,11 @@ export function ProductionPageClient({
     const client = createClient()
     const { data, error } = await client
       .from('items')
-      .select(
-        `
-        id, name, type,
-        cost_per_unit, conversion_ratio, avg_cost_per_usage_unit,
-        usage_unit:units!items_usage_unit_id_fkey (name)
-      `
-      )
+      .select(`id, name, type, cost_per_unit, conversion_ratio, avg_cost_per_usage_unit, usage_unit:units!items_usage_unit_id_fkey (name)`)
       .eq('business_id', businessId)
       .order('name')
 
-    if (error) {
-      toast.error(friendlyError(error))
-      return
-    }
+    if (error) { toast.error(friendlyError(error)); return }
 
     setStockItems(
       (data ?? []).map((row: Record<string, unknown>) => {
@@ -137,32 +127,24 @@ export function ProductionPageClient({
     )
   }, [businessId])
 
-  const fetchLotsForItem = useCallback(
-    async (itemId: string) => {
-      if (!businessId || !itemId) return
-      const client = createClient()
-      const { data, error } = await client
-        .from('purchase_lots')
-        .select('id, quantity_remaining, purchased_at, cost_per_usage_unit, label')
-        .eq('business_id', businessId)
-        .eq('item_id', itemId)
-        .gt('quantity_remaining', 0)
-        .order('purchased_at', { ascending: true })
+  const fetchLotsForItem = useCallback(async (itemId: string) => {
+    if (!businessId || !itemId) return
+    const client = createClient()
+    const { data, error } = await client
+      .from('purchase_lots')
+      .select('id, quantity_remaining, purchased_at, cost_per_usage_unit, label')
+      .eq('business_id', businessId)
+      .eq('item_id', itemId)
+      .gt('quantity_remaining', 0)
+      .order('purchased_at', { ascending: true })
 
-      if (error) {
-        if (error.code === '42P01' || error.message?.includes('purchase_lots')) {
-          return
-        }
-        toast.error(friendlyError(error, 'Could not load your production runs'))
-        return
-      }
-      setLotOptionsByItem((prev) => ({
-        ...prev,
-        [itemId]: (data ?? []) as PurchaseLotOption[],
-      }))
-    },
-    [businessId]
-  )
+    if (error) {
+      if (error.code === '42P01' || error.message?.includes('purchase_lots')) return
+      toast.error(friendlyError(error, 'Could not load your production runs'))
+      return
+    }
+    setLotOptionsByItem((prev) => ({ ...prev, [itemId]: (data ?? []) as PurchaseLotOption[] }))
+  }, [businessId])
 
   const fetchBatches = useCallback(async () => {
     if (!businessId) return
@@ -170,30 +152,17 @@ export function ProductionPageClient({
     const client = createClient()
 
     const [{ data, error }, salesRes] = await Promise.all([
-      client
-        .from('batches')
-        .select('*, products(name), batch_items(id)')
-        .eq('business_id', businessId)
-        .order('produced_at', { ascending: false }),
-      client
-        .from('sales')
-        .select('batch_id, revenue')
-        .eq('business_id', businessId)
-        .not('batch_id', 'is', null),
+      client.from('batches').select('*, products(name), batch_items(id)').eq('business_id', businessId).order('produced_at', { ascending: false }),
+      client.from('sales').select('batch_id, revenue').eq('business_id', businessId).not('batch_id', 'is', null),
     ])
 
-    if (error) {
-      toast.error(friendlyError(error))
-      setIsLoading(false)
-      return
-    }
+    if (error) { toast.error(friendlyError(error)); setIsLoading(false); return }
 
     const revenueByBatch = new Map<string, number>()
     for (const row of salesRes.data ?? []) {
       const r = row as { batch_id: string | null; revenue: number | string | null }
       if (!r.batch_id || r.revenue == null) continue
-      const prev = revenueByBatch.get(r.batch_id) ?? 0
-      revenueByBatch.set(r.batch_id, prev + Number(r.revenue))
+      revenueByBatch.set(r.batch_id, (revenueByBatch.get(r.batch_id) ?? 0) + Number(r.revenue))
     }
 
     setBatches(
@@ -208,15 +177,11 @@ export function ProductionPageClient({
           product_name: products?.name ?? notes ?? 'Unnamed run',
           units_produced: Number(b.units_produced),
           units_remaining: Number(b.units_remaining),
-          units_given_away:
-            b.units_given_away != null ? Number(b.units_given_away) : 0,
-          units_sold_from_batch:
-            b.units_sold_from_batch != null ? Number(b.units_sold_from_batch) : 0,
+          units_given_away: b.units_given_away != null ? Number(b.units_given_away) : 0,
+          units_sold_from_batch: b.units_sold_from_batch != null ? Number(b.units_sold_from_batch) : 0,
           units_spoiled: b.units_spoiled != null ? Number(b.units_spoiled) : 0,
-          units_given_out_extra:
-            b.units_given_out_extra != null ? Number(b.units_given_out_extra) : 0,
-          units_not_sold_loss:
-            b.units_not_sold_loss != null ? Number(b.units_not_sold_loss) : 0,
+          units_given_out_extra: b.units_given_out_extra != null ? Number(b.units_given_out_extra) : 0,
+          units_not_sold_loss: b.units_not_sold_loss != null ? Number(b.units_not_sold_loss) : 0,
           cost_of_goods: b.cost_of_goods != null ? Number(b.cost_of_goods) : null,
           notes,
           produced_at: b.produced_at as string,
@@ -228,25 +193,17 @@ export function ProductionPageClient({
     setIsLoading(false)
   }, [businessId])
 
-  useEffect(() => {
-    setBatches(initialBatches)
-  }, [initialBatches])
-
-  useEffect(() => {
-    setStockItems(initialStockItems)
-  }, [initialStockItems])
+  useEffect(() => { setBatches(initialBatches) }, [initialBatches])
+  useEffect(() => { setStockItems(initialStockItems) }, [initialStockItems])
 
   useEffect(() => {
     if (!businessId) return
-    if (skipInitialFetch.current) {
-      skipInitialFetch.current = false
-      return
-    }
+    if (skipInitialFetch.current) { skipInitialFetch.current = false; return }
     void fetchBatches()
     void fetchStockItems()
   }, [businessId, fetchBatches, fetchStockItems])
 
-  // Load product catalog (with variants) when dialog opens
+  // Load product catalog when dialog opens
   useEffect(() => {
     if (!dialogOpen || !businessId) return
     void supabase
@@ -284,6 +241,8 @@ export function ProductionPageClient({
     setForm({
       productName: '',
       unitsProduced: '',
+      unitsSold: '',
+      salePrice: '',
       unitsGivenAway: '',
       notes: '',
       producedAt: formatCalendarDateInTimeZone(new Date(), timezone),
@@ -310,6 +269,8 @@ export function ProductionPageClient({
     setForm({
       productName: batch.product_name,
       unitsProduced: batch.units_produced.toString(),
+      unitsSold: '',
+      salePrice: '',
       unitsGivenAway: '',
       notes: '',
       producedAt: formatCalendarDateInTimeZone(new Date(batch.produced_at), timezone),
@@ -331,23 +292,29 @@ export function ProductionPageClient({
     if (!businessId || isSubmitting) return
 
     const nameTrim = form.productName.trim()
-    if (!nameTrim) {
-      toast.error('Enter the product name.')
-      return
-    }
+    if (!nameTrim) { toast.error('Pick or type a product name.'); return }
     if (!parseFloat(form.unitsProduced) || parseFloat(form.unitsProduced) <= 0) {
       toast.error('Enter how many you made.')
       return
     }
-    if (nameTrim.length > 200) {
-      toast.error('Product name is too long. Keep it under 200 characters.')
-      return
-    }
+    if (nameTrim.length > 200) { toast.error('Product name is too long.'); return }
 
     const units = parseFloat(form.unitsProduced)
     const givenAway = !editingBatch ? Math.max(0, parseFloat(form.unitsGivenAway) || 0) : 0
     if (!editingBatch && givenAway > units) {
-      toast.error('Samples or giveaways can’t be more than how many you made.')
+      toast.error('Samples can\'t be more than how many you made.')
+      return
+    }
+
+    const soldQty = parseFloat(form.unitsSold) || 0
+    const soldPrice = parseFloat(form.salePrice) || 0
+    if (soldQty > 0 && soldPrice <= 0) {
+      toast.error('Enter the price per item to log the sale.')
+      return
+    }
+    const availableForSale = units - givenAway
+    if (soldQty > availableForSale) {
+      toast.error(`You can only sell up to ${availableForSale} (what's left after samples).`)
       return
     }
 
@@ -358,9 +325,7 @@ export function ProductionPageClient({
           item_id: l.itemId,
           quantity: parseFloat(l.quantity),
         }
-        if (l.purchaseLotId.trim()) {
-          row.purchase_lot_id = l.purchaseLotId.trim()
-        }
+        if (l.purchaseLotId.trim()) row.purchase_lot_id = l.purchaseLotId.trim()
         return row
       })
 
@@ -391,7 +356,6 @@ export function ProductionPageClient({
             produced_at: businessCalendarDateToIsoUtc(form.producedAt, timezone),
           })
           .eq('id', editingBatch.id)
-
         if (error) throw error
         toast.success('Run updated!')
       } else {
@@ -405,15 +369,41 @@ export function ProductionPageClient({
           p_product_id: productId,
           p_units_not_for_sale: givenAway,
         })
-
         if (error) throw error
         if (!batchId) throw new Error('No batch id returned')
-        // Attach variant if selected
+
         if (selectedVariantId) {
           await client.from('batches').update({ variant_id: selectedVariantId }).eq('id', batchId as string)
         }
+
+        // Quick sale — log it right now if the user filled in sold qty + price
+        if (soldQty > 0 && soldPrice > 0) {
+          const { error: saleErr } = await client.rpc('record_sale_with_batch', {
+            p_business_id: businessId,
+            p_product_id: productId,
+            p_product_name: nameTrim,
+            p_units_sold: soldQty,
+            p_unit_price: soldPrice,
+            p_sold_at: businessCalendarDateToIsoUtc(form.producedAt, timezone),
+            p_customer_id: null,
+            p_batch_id: batchId,
+            p_cogs_if_no_batch: null,
+          })
+          if (saleErr) {
+            toast.warning(`Run saved, but sale log failed: ${saleErr.message}`)
+          } else {
+            const remaining = units - givenAway - soldQty
+            toast.success(
+              remaining > 0
+                ? `Saved. ${soldQty} sold, ${remaining} left.`
+                : `Saved. All ${soldQty} sold!`
+            )
+          }
+        } else {
+          toast.success('Saved. Stock updated from what you used.')
+        }
+
         trackEvent('batch_created', businessId, { batch_id: batchId, units_produced: units })
-        toast.success('Saved. Stock updated from what you used.')
       }
 
       setDialogOpen(false)
@@ -428,17 +418,12 @@ export function ProductionPageClient({
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this run? Stock from ingredients will be restored.')) return
-
     const batch = batches.find((b) => b.id === id)
     const client = createClient()
     const { error } = batch?.has_inventory_lines
       ? await client.rpc('delete_production_batch', { p_batch_id: id })
       : await client.from('batches').delete().eq('id', id)
-
-    if (error) {
-      toast.error(friendlyError(error))
-      return
-    }
+    if (error) { toast.error(friendlyError(error)); return }
     toast.success('Run deleted')
     fetchBatches()
     fetchStockItems()
@@ -447,10 +432,7 @@ export function ProductionPageClient({
   async function submitDispose(kind: 'given_out' | 'not_sold') {
     if (!disposeTarget || !businessId || disposeSubmitting) return
     const qty = parseFloat(disposeQty)
-    if (!qty || qty <= 0) {
-      toast.error('Enter how many items this applies to.')
-      return
-    }
+    if (!qty || qty <= 0) { toast.error('Enter how many items this applies to.'); return }
     if (qty > disposeTarget.units_remaining) {
       toast.error(`You only have ${disposeTarget.units_remaining} left in this run.`)
       return
@@ -464,11 +446,7 @@ export function ProductionPageClient({
         p_kind: kind,
       })
       if (error) throw error
-      const label =
-        kind === 'given_out'
-          ? 'Saved — those were given away.'
-          : 'Saved — those won’t be sold (counted as lost).'
-      toast.success(label)
+      toast.success(kind === 'given_out' ? 'Saved. Marked as given away.' : 'Saved. Written off as unsold.')
       setDisposeTarget(null)
       setDisposeQty('')
       setExpandedBatchId(null)
@@ -487,8 +465,7 @@ export function ProductionPageClient({
   const totalGivenLater = batches.reduce((sum, b) => sum + b.units_given_out_extra, 0)
 
   function lineUsageUnitName(line: LineRow): string | null {
-    const it = stockItems.find((s) => s.id === line.itemId)
-    return it?.usage_unit_name?.toLowerCase() ?? null
+    return stockItems.find((s) => s.id === line.itemId)?.usage_unit_name?.toLowerCase() ?? null
   }
 
   function setLineQty(index: number, value: string) {
@@ -503,17 +480,14 @@ export function ProductionPageClient({
   const totalMoneyTiedUp = useMemo(() => {
     let sum = 0
     for (const b of batches) {
-      const cogs = b.cost_of_goods ?? 0
       if (b.units_remaining <= 0 || b.cost_of_goods == null || b.units_produced <= 0) continue
-      const cpu = costPerOutputUnit(cogs, b.units_produced)
-      sum += b.units_remaining * cpu
+      sum += b.units_remaining * costPerOutputUnit(b.cost_of_goods, b.units_produced)
     }
     return sum
   }, [batches])
 
   const firstSellBatchId = useMemo(() => {
-    const b = batches.find((x) => x.units_remaining > 0 && x.product_id)
-    return b?.id ?? null
+    return batches.find((x) => x.units_remaining > 0 && x.product_id)?.id ?? null
   }, [batches])
 
   const liveProductionCost = useMemo(() => {
@@ -530,149 +504,215 @@ export function ProductionPageClient({
       lineDetails.push({ name: it.name, qty, unit: it.usage_unit_name, est: sub })
     }
     const made = parseFloat(form.unitsProduced) || 0
-    const perPiece = made > 0 ? ingredients / made : 0
-    return { ingredients, perPiece, made, lineDetails }
+    return { ingredients, perPiece: made > 0 ? ingredients / made : 0, made, lineDetails }
   }, [lines, stockItems, form.unitsProduced])
+
+  // Product chips: use catalog if available, fall back to common presets
+  const productChips = productCatalog.length > 0
+    ? productCatalog.map((p) => p.name)
+    : COMMON_BAKES
+
+  const soldQtyParsed = parseFloat(form.unitsSold) || 0
+  const producedQtyParsed = parseFloat(form.unitsProduced) || 0
 
   return (
     <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Production</h1>
-          <p className="text-gray-600 mt-1">
-            Record what you made; we pull ingredients from stock and show cost as you type.{' '}
-            <Link href="/dashboard/stock" className="text-amber-700 underline font-medium">
-              Add stock
-            </Link>{' '}
-            if something is missing.
-          </p>
-        </div>
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">Production</h1>
+        <p className="text-gray-600 mt-1">
+          Record what you made and what you sold.{' '}
+          <Link href="/dashboard/stock" className="underline font-medium" style={{ color: 'var(--brand)' }}>
+            Add stock
+          </Link>{' '}
+          if something is missing.
+        </p>
+      </div>
 
-        {batches.length > 0 && (
-          <Card className="border-2 border-amber-300 bg-amber-50/90 shadow-md">
-            <CardContent className="pt-6 pb-5">
-              <p className="text-sm font-semibold text-amber-950 uppercase tracking-wide">
-                Ingredient cost in unsold items
-              </p>
-              <p className="text-3xl sm:text-4xl font-extrabold tabular-nums text-gray-900 mt-1">
-                {formatCurrency(totalMoneyTiedUp, currency)}
-              </p>
-              <p className="text-sm text-gray-800 mt-2 max-w-xl">
-                That is cost still sitting in what you have not sold yet.
-              </p>
-              <p className="text-sm font-semibold text-amber-950 mt-3 bg-amber-100/90 border border-amber-200 rounded-lg px-3 py-2">
-                If they do not sell, you lose this money.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3 mt-5">
-                <Button
-                  asChild
-                  size="lg"
-                  className="min-h-12 text-base flex-1 bg-amber-600 hover:bg-amber-700"
-                >
-                  <Link href={firstSellBatchId ? `/dashboard/sales?batch=${firstSellBatchId}` : '/dashboard/sales'}>
-                    Sell now
-                  </Link>
-                </Button>
-                <Button asChild size="lg" variant="outline" className="min-h-12 text-base flex-1 bg-white">
-                  <Link href="#production-batches">What happened?</Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button size="lg" className="bg-amber-600 hover:bg-amber-700 min-h-12 text-base shrink-0">
-                <Plus size={20} className="mr-2" />
-                Record production
+      {batches.length > 0 && totalMoneyTiedUp > 0 && (
+        <Card className="border-2 shadow-md" style={{ borderColor: 'var(--brand-mid)', backgroundColor: 'var(--brand-light)' }}>
+          <CardContent className="pt-5 pb-5">
+            <p className="text-sm font-semibold uppercase tracking-wide" style={{ color: 'var(--brand-dark)' }}>
+              Still unsold
+            </p>
+            <p className="text-3xl sm:text-4xl font-extrabold tabular-nums text-gray-900 mt-1">
+              {formatCurrency(totalMoneyTiedUp, currency)}
+            </p>
+            <p className="text-sm text-gray-700 mt-1">
+              That is what it cost you to make the items still on your shelf. Sell them to get your money back.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 mt-4">
+              <Button
+                asChild
+                size="lg"
+                className="min-h-12 text-base flex-1"
+                style={{ backgroundColor: 'var(--brand)' }}
+              >
+                <Link href={firstSellBatchId ? `/dashboard/sales?batch=${firstSellBatchId}` : '/dashboard/sales'}>
+                  Sell now
+                </Link>
               </Button>
-            </DialogTrigger>
-            <DialogContent className="max-h-[90vh] overflow-y-auto max-w-lg">
+              <Button asChild size="lg" variant="outline" className="min-h-12 text-base flex-1 bg-white">
+                <Link href="#production-batches">What happened?</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button
+              size="lg"
+              className="min-h-12 text-base shrink-0"
+              style={{ backgroundColor: 'var(--brand)' }}
+              onClick={openAdd}
+            >
+              <Plus size={20} className="mr-2" />
+              Record production
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-h-[90vh] overflow-y-auto max-w-lg overflow-hidden p-0">
+            {/* Branded header */}
+            <div className="px-6 pt-5 pb-4 sticky top-0 z-10" style={{ backgroundColor: 'var(--brand-light)', borderBottom: '1px solid var(--brand-mid)' }}>
               <DialogHeader>
-                <DialogTitle className="text-xl">
+                <DialogTitle className="text-xl" style={{ color: 'var(--brand-dark)' }}>
                   {editingBatch ? 'Edit run' : 'Record production'}
                 </DialogTitle>
               </DialogHeader>
-              <form noValidate onSubmit={handleSave} className="space-y-4">
-                <div>
-                  <Label className="text-base">What is it?</Label>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {COMMON_BAKES.map((name) => (
-                      <Button
-                        key={name}
+            </div>
+
+            <form noValidate onSubmit={handleSave} className="space-y-5 px-6 py-5">
+
+              {/* ── What did you make? ── */}
+              <div>
+                <Label className="text-base">What did you make?</Label>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {productChips.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className={cn(
+                        'px-3 py-2 rounded-lg text-sm border transition-colors min-h-10',
+                        form.productName === name
+                          ? 'text-white border-transparent'
+                          : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300'
+                      )}
+                      style={form.productName === name ? { backgroundColor: 'var(--brand)', borderColor: 'var(--brand)' } : undefined}
+                      disabled={!!editingBatch?.has_inventory_lines}
+                      onClick={() => setForm((f) => ({ ...f, productName: name }))}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+                <Input
+                  value={form.productName}
+                  onChange={(e) => setForm({ ...form, productName: e.target.value })}
+                  placeholder={productCatalog.length > 0 ? 'Or type a new product name' : 'Or type any name, e.g. Banana bread'}
+                  className="mt-2 min-h-11 text-base"
+                  disabled={!!editingBatch?.has_inventory_lines}
+                />
+                {productCatalog.length === 0 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Add products in the{' '}
+                    <Link href="/dashboard/products" className="underline" style={{ color: 'var(--brand)' }}>Products</Link>
+                    {' '}tab first to see them here.
+                  </p>
+                )}
+              </div>
+
+              {/* Variant picker */}
+              {variantsForProduct.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label className="text-sm text-gray-700">Which type did you make?</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {variantsForProduct.map((v) => (
+                      <button
+                        key={v.id}
                         type="button"
-                        variant="outline"
-                        size="lg"
-                        className="min-h-11 text-base"
-                        disabled={!!editingBatch?.has_inventory_lines}
-                        onClick={() => {
-                          if (name === 'Custom…') setForm((f) => ({ ...f, productName: '' }))
-                          else setForm((f) => ({ ...f, productName: name }))
-                        }}
+                        onClick={() => setSelectedVariantId(selectedVariantId === v.id ? null : v.id)}
+                        className={cn(
+                          'px-3 py-1.5 rounded-full text-sm border transition-colors',
+                          selectedVariantId === v.id
+                            ? 'text-white border-transparent'
+                            : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
+                        )}
+                        style={selectedVariantId === v.id ? { backgroundColor: 'var(--brand)', borderColor: 'var(--brand)' } : undefined}
                       >
-                        {name}
-                      </Button>
+                        {v.name}
+                      </button>
                     ))}
                   </div>
-                  <Input
-                    id="productName"
-                    value={form.productName}
-                    onChange={(e) => setForm({ ...form, productName: e.target.value })}
-                    placeholder="Or type any name, e.g. Banana bread, Chin-chin"
-                    className="mt-3 min-h-11 text-base"
-                    disabled={!!editingBatch?.has_inventory_lines}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Use the same name when you sell so sales and costs match up.
-                  </p>
                 </div>
+              )}
 
-                {/* Variant picker — only shows when the product has variants */}
-                {variantsForProduct.length > 0 && (
-                  <div className="space-y-1.5">
-                    <Label className="text-sm text-gray-700">Which type did you make?</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {variantsForProduct.map((v) => (
-                        <button
-                          key={v.id}
-                          type="button"
-                          onClick={() => setSelectedVariantId(selectedVariantId === v.id ? null : v.id)}
-                          className={cn(
-                            'px-3 py-1.5 rounded-full text-sm border transition-colors',
-                            selectedVariantId === v.id
-                              ? 'bg-amber-600 text-white border-amber-600'
-                              : 'bg-white text-gray-700 border-gray-300 hover:border-amber-400'
-                          )}
-                        >
-                          {v.name}
-                        </button>
-                      ))}
-                    </div>
+              {/* ── How many did you make? ── */}
+              <div>
+                <Label className="text-base">How many did you make?</Label>
+                <WholeNumberChips
+                  values={[...COMMON_BATCH_SIZES]}
+                  onPick={(n) => setForm((f) => ({ ...f, unitsProduced: String(n) }))}
+                  className="mt-2"
+                />
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  inputMode="decimal"
+                  value={form.unitsProduced}
+                  onChange={(e) => setForm({ ...form, unitsProduced: e.target.value })}
+                  placeholder="Or type a number"
+                  className="mt-2 min-h-11 text-base"
+                  disabled={!!editingBatch?.has_inventory_lines}
+                />
+              </div>
+
+              {/* ── How many did you sell? (quick log) ── */}
+              {!editingBatch && (
+                <div className="rounded-lg border p-4 space-y-3" style={{ borderColor: 'var(--brand-mid)', backgroundColor: 'var(--brand-light)' }}>
+                  <div>
+                    <Label className="text-base" style={{ color: 'var(--brand-dark)' }}>How many did you sell?</Label>
+                    <p className="text-xs text-gray-600 mt-0.5">Optional. Log it now to save time later.</p>
+                    <WholeNumberChips
+                      values={producedQtyParsed > 0
+                        ? [1, Math.floor(producedQtyParsed / 2), producedQtyParsed].filter((v, i, a) => v > 0 && a.indexOf(v) === i)
+                        : [1, 2, 5, 10]}
+                      onPick={(n) => setForm((f) => ({ ...f, unitsSold: String(n) }))}
+                      className="mt-2"
+                    />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      inputMode="decimal"
+                      value={form.unitsSold}
+                      onChange={(e) => setForm({ ...form, unitsSold: e.target.value })}
+                      placeholder="0 (skip if not selling yet)"
+                      className="mt-2 min-h-11 text-base"
+                    />
                   </div>
-                )}
-
-                <div>
-                  <Label className="text-base">How many did you make?</Label>
-                  <WholeNumberChips
-                    values={[...COMMON_BATCH_SIZES]}
-                    onPick={(n) => setForm((f) => ({ ...f, unitsProduced: String(n) }))}
-                    className="mt-2"
-                  />
-                  <Input
-                    id="units"
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    inputMode="decimal"
-                    value={form.unitsProduced}
-                    onChange={(e) => setForm({ ...form, unitsProduced: e.target.value })}
-                    placeholder="Or type a number"
-                    className="mt-2 min-h-11 text-base"
-                    disabled={!!editingBatch?.has_inventory_lines}
-                  />
+                  {soldQtyParsed > 0 && (
+                    <div>
+                      <Label className="text-base">Price per item</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        inputMode="decimal"
+                        value={form.salePrice}
+                        onChange={(e) => setForm({ ...form, salePrice: e.target.value })}
+                        placeholder="How much did you charge?"
+                        className="mt-1 min-h-11 text-base"
+                        autoFocus
+                      />
+                    </div>
+                  )}
                 </div>
-                {!editingBatch && (
+              )}
+
+              {/* ── Not for sale (samples) ── */}
+              {!editingBatch && (
                 <div>
                   <Label className="text-base">How many are NOT for sale?</Label>
                   <Input
@@ -686,42 +726,43 @@ export function ProductionPageClient({
                     className="mt-2 min-h-11 text-base"
                   />
                   <p className="text-xs text-gray-600 mt-1">
-                    Samples, gifts, tasting pieces — anything you made but won't sell.
-                    Keeps your "left to sell" number accurate.
+                    Samples, gifts, tasting pieces. Anything you made but will not sell.
                   </p>
                 </div>
-                )}
-                <div>
-                  <Label htmlFor="date" className="text-base">
-                    Date
-                  </Label>
-                  <Input
-                    id="date"
-                    type="date"
-                    value={form.producedAt}
-                    onChange={(e) => setForm({ ...form, producedAt: e.target.value })}
-                    className="mt-1 min-h-11"
-                    required
-                  />
-                </div>
-                <details className="text-sm border rounded-lg p-3 bg-gray-50">
-                  <summary className="cursor-pointer font-medium">Note (optional)</summary>
-                  <Input
-                    id="notes"
-                    value={form.notes}
-                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                    placeholder="e.g. morning shift"
-                    className="mt-2 min-h-11"
-                  />
-                </details>
+              )}
 
-                {!editingBatch && (
-                  <details className="border rounded-lg bg-amber-50/40">
-                    <summary className="cursor-pointer px-3 py-3 flex items-center justify-between">
-                      <span className="text-base font-medium">Track what you used (optional)</span>
-                      <span className="text-xs text-gray-500 ml-2">Add ingredients to see cost</span>
-                    </summary>
-                  <div className="space-y-3 px-3 pb-3 pt-1">
+              {/* ── Date ── */}
+              <div>
+                <Label htmlFor="date" className="text-base">Date</Label>
+                <Input
+                  id="date"
+                  type="date"
+                  value={form.producedAt}
+                  onChange={(e) => setForm({ ...form, producedAt: e.target.value })}
+                  className="mt-1 min-h-11"
+                  required
+                />
+              </div>
+
+              {/* ── Note ── */}
+              <details className="text-sm border rounded-lg p-3 bg-gray-50">
+                <summary className="cursor-pointer font-medium">Note (optional)</summary>
+                <Input
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  placeholder="e.g. morning shift"
+                  className="mt-2 min-h-11"
+                />
+              </details>
+
+              {/* ── Ingredient tracking ── */}
+              {!editingBatch && (
+                <details className="border rounded-lg" style={{ borderColor: 'var(--brand-mid)' }}>
+                  <summary className="cursor-pointer px-3 py-3 flex items-center justify-between rounded-lg" style={{ backgroundColor: 'var(--brand-light)' }}>
+                    <span className="text-base font-medium" style={{ color: 'var(--brand-dark)' }}>Track what you used (optional)</span>
+                    <span className="text-xs text-gray-500 ml-2">Add ingredients to see cost</span>
+                  </summary>
+                  <div className="space-y-3 px-3 pb-3 pt-2">
                     <div className="flex justify-between items-center gap-2">
                       <p className="text-xs text-gray-600">
                         Amounts are in each item&apos;s recipe unit (cups, grams, eggs…).
@@ -731,41 +772,30 @@ export function ProductionPageClient({
                       </Button>
                     </div>
                     {stockItems.length === 0 && (
-                      <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      <p className="text-sm bg-white border rounded-lg px-3 py-2" style={{ borderColor: 'var(--brand-mid)', color: 'var(--brand-dark)' }}>
                         No stock items yet.{' '}
-                        <Link href="/dashboard/stock" className="underline font-medium">
-                          Add your ingredients
-                        </Link>{' '}
-                        first to track ingredient costs here.
+                        <Link href="/dashboard/stock" className="underline font-medium">Add your ingredients</Link>
+                        {' '}first to track costs here.
                       </p>
                     )}
                     {lines.map((line, index) => {
                       const cupItem = lineUsageUnitName(line) === 'cup'
-                      const lineItem = line.itemId
-                        ? stockItems.find((s) => s.id === line.itemId)
-                        : null
+                      const lineItem = line.itemId ? stockItems.find((s) => s.id === line.itemId) : null
                       const lineQty = parseFloat(line.quantity)
-                      const lineEstSubtotal =
-                        lineItem && lineQty > 0 ? lineQty * estimatedCostPerUsageUnit(lineItem) : null
+                      const lineEstSubtotal = lineItem && lineQty > 0 ? lineQty * estimatedCostPerUsageUnit(lineItem) : null
                       return (
-                        <div key={index} className="space-y-2 border-b border-amber-100 pb-3 last:border-0">
+                        <div key={index} className="space-y-2 border-b pb-3 last:border-0" style={{ borderColor: 'var(--brand-light)' }}>
                           <select
                             value={line.itemId}
                             onChange={(e) => {
                               const v = e.target.value
-                              setLines((prev) =>
-                                prev.map((row, i) =>
-                                  i === index ? { ...row, itemId: v, purchaseLotId: '' } : row
-                                )
-                              )
+                              setLines((prev) => prev.map((row, i) => i === index ? { ...row, itemId: v, purchaseLotId: '' } : row))
                             }}
                             className="w-full px-3 py-2.5 border border-gray-200 rounded-md text-base min-h-11"
                           >
                             <option value="">Pick an item</option>
                             {stockItems.map((it) => (
-                              <option key={it.id} value={it.id}>
-                                {it.name} · {it.usage_unit_name}
-                              </option>
+                              <option key={it.id} value={it.id}>{it.name} · {it.usage_unit_name}</option>
                             ))}
                           </select>
                           <Input
@@ -781,14 +811,9 @@ export function ProductionPageClient({
                           {lineEstSubtotal != null && lineQty > 0 ? (
                             <p className="text-xs text-gray-600">
                               This line:{' '}
-                              <strong className="text-gray-900">
-                                {formatCurrency(lineEstSubtotal / lineQty, currency)}
-                              </strong>{' '}
-                              per {lineItem?.usage_unit_name ?? 'unit'} ·{' '}
-                              <strong className="text-gray-900">
-                                {formatCurrency(lineEstSubtotal, currency)}
-                              </strong>{' '}
-                              total (from your latest costs).
+                              <strong className="text-gray-900">{formatCurrency(lineEstSubtotal / lineQty, currency)}</strong>
+                              {' '}per {lineItem?.usage_unit_name ?? 'unit'} ·{' '}
+                              <strong className="text-gray-900">{formatCurrency(lineEstSubtotal, currency)}</strong> total
                             </p>
                           ) : null}
                           {cupItem && (
@@ -798,19 +823,13 @@ export function ProductionPageClient({
                             </div>
                           )}
                           {!cupItem && line.itemId && (
-                            <WholeNumberChips
-                              values={[1, 2, 5, 10, 100, 500]}
-                              onPick={(n) => setLineQty(index, String(n))}
-                            />
+                            <WholeNumberChips values={[1, 2, 5, 10, 100, 500]} onPick={(n) => setLineQty(index, String(n))} />
                           )}
                           {line.itemId ? (
                             <details
                               className="text-xs border border-dashed border-gray-200 rounded-md px-2 py-1"
                               onToggle={(e) => {
-                                const el = e.currentTarget
-                                if (el.open && line.itemId) {
-                                  void fetchLotsForItem(line.itemId)
-                                }
+                                if (e.currentTarget.open && line.itemId) void fetchLotsForItem(line.itemId)
                               }}
                             >
                               <summary className="cursor-pointer text-gray-600 py-1">
@@ -820,29 +839,16 @@ export function ProductionPageClient({
                                 <select
                                   value={line.purchaseLotId}
                                   onChange={(ev) =>
-                                    setLines((prev) =>
-                                      prev.map((row, i) =>
-                                        i === index
-                                          ? { ...row, purchaseLotId: ev.target.value }
-                                          : row
-                                      )
-                                    )
+                                    setLines((prev) => prev.map((row, i) => i === index ? { ...row, purchaseLotId: ev.target.value } : row))
                                   }
                                   className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm min-h-10"
                                 >
                                   <option value="">Let Operbase choose (normal)</option>
                                   {(lotOptionsByItem[line.itemId] ?? []).map((lot) => {
-                                    const u = stockItems.find((s) => s.id === line.itemId)
-                                      ?.usage_unit_name
+                                    const u = stockItems.find((s) => s.id === line.itemId)?.usage_unit_name
                                     return (
                                       <option key={lot.id} value={lot.id}>
-                                        {new Date(lot.purchased_at).toLocaleDateString()} ·{' '}
-                                        {Number(lot.quantity_remaining).toFixed(2)} {u ?? ''} @{' '}
-                                        {formatCurrency(
-                                          Number(lot.cost_per_usage_unit),
-                                          currency
-                                        )}
-                                        /{u ?? 'unit'}
+                                        {new Date(lot.purchased_at).toLocaleDateString()} · {Number(lot.quantity_remaining).toFixed(2)} {u ?? ''} @ {formatCurrency(Number(lot.cost_per_usage_unit), currency)}/{u ?? 'unit'}
                                       </option>
                                     )
                                   })}
@@ -851,13 +857,7 @@ export function ProductionPageClient({
                             </details>
                           ) : null}
                           {lines.length > 1 && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="text-destructive"
-                              onClick={() => removeLine(index)}
-                            >
+                            <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => removeLine(index)}>
                               Remove row
                             </Button>
                           )}
@@ -865,435 +865,319 @@ export function ProductionPageClient({
                       )
                     })}
                   </div>
-                  </details>
-                )}
+                </details>
+              )}
 
-                {!editingBatch && liveProductionCost.lineDetails.length > 0 && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 space-y-3">
-                    <p className="text-sm font-semibold text-gray-900">Cost preview</p>
-                    <ul className="text-sm text-gray-700 space-y-1.5">
-                      {liveProductionCost.lineDetails.map((d, i) => (
-                        <li key={`${d.name}-${i}`} className="flex justify-between gap-3">
-                          <span className="min-w-0 truncate">
-                            {d.name} × {d.qty} {d.unit}
-                          </span>
-                          <span className="tabular-nums shrink-0">
-                            {formatCurrency(d.est, currency)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="border-t border-amber-100 pt-2 space-y-1 text-sm">
-                      <div className="flex justify-between font-medium text-gray-900">
-                        <span>Ingredients total</span>
-                        <span>{formatCurrency(liveProductionCost.ingredients, currency)}</span>
-                      </div>
-                      {liveProductionCost.made > 0 ? (
-                        <div className="flex justify-between text-gray-700">
-                          <span>Per finished item (÷ {liveProductionCost.made})</span>
-                          <span className="font-semibold tabular-nums">
-                            {formatCurrency(liveProductionCost.perPiece, currency)}
-                          </span>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-amber-900/80">
-                          Enter how many you made above to see cost per item.
-                        </p>
-                      )}
+              {/* ── Cost preview ── */}
+              {!editingBatch && liveProductionCost.lineDetails.length > 0 && (
+                <div className="rounded-lg border p-4 space-y-3" style={{ borderColor: 'var(--brand-mid)', backgroundColor: 'var(--brand-light)' }}>
+                  <p className="text-sm font-semibold text-gray-900">Cost preview</p>
+                  <ul className="text-sm text-gray-700 space-y-1.5">
+                    {liveProductionCost.lineDetails.map((d, i) => (
+                      <li key={`${d.name}-${i}`} className="flex justify-between gap-3">
+                        <span className="min-w-0 truncate">{d.name} × {d.qty} {d.unit}</span>
+                        <span className="tabular-nums shrink-0">{formatCurrency(d.est, currency)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="border-t pt-2 space-y-1 text-sm" style={{ borderColor: 'var(--brand-mid)' }}>
+                    <div className="flex justify-between font-medium text-gray-900">
+                      <span>Ingredients total</span>
+                      <span>{formatCurrency(liveProductionCost.ingredients, currency)}</span>
                     </div>
-                    <p className="text-xs text-gray-600 leading-snug">
-                      When you save, we use the exact lots you bought so this total matches your stock.
-                    </p>
+                    {liveProductionCost.made > 0 ? (
+                      <div className="flex justify-between text-gray-700">
+                        <span>Per finished item</span>
+                        <span className="font-semibold tabular-nums">{formatCurrency(liveProductionCost.perPiece, currency)}</span>
+                      </div>
+                    ) : (
+                      <p className="text-xs" style={{ color: 'var(--brand-dark)' }}>
+                        Enter how many you made above to see cost per item.
+                      </p>
+                    )}
                   </div>
-                )}
-
-                <Button
-                  type="submit"
-                  size="lg"
-                  className="w-full bg-amber-600 hover:bg-amber-700 min-h-12 text-base"
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <><Loader2 size={18} className="mr-2 animate-spin" />Saving…</>
-                  ) : editingBatch ? 'Save' : 'Save production'}
-                </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Made</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalProduced.toFixed(0)}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Sold</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">
-                {totalSoldFromBatches.toFixed(0)}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Left</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-amber-600">{totalRemaining.toFixed(0)}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Lost</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-gray-500">
-                {(totalGivenAtStart + totalGivenLater + batches.reduce((sum, b) => sum + b.units_spoiled + b.units_not_sold_loss, 0)).toFixed(0)}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card id="production-batches">
-          <CardHeader>
-            <CardTitle>Your runs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <p className="text-center text-gray-500 py-8">Loading...</p>
-            ) : batches.length === 0 ? (
-              <p className="text-center text-gray-500 py-8 max-w-lg mx-auto leading-relaxed">
-                Nothing recorded yet. Tap Record production when you finish a run — we work out cost from
-                what you used.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-10 p-2" />
-                      <TableHead>Product</TableHead>
-                      <TableHead>Sold</TableHead>
-                      <TableHead>Left</TableHead>
-                      <TableHead>Lost</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {batches.map((batch) => {
-                      const cogs = batch.cost_of_goods ?? 0
-                      const cpu = costPerOutputUnit(cogs, batch.units_produced)
-                      const tiedUp =
-                        batch.units_remaining > 0 && batch.cost_of_goods != null && batch.units_produced > 0
-                          ? batch.units_remaining * cpu
-                          : 0
-                      const runResult = batch.revenue_from_batch - (batch.cost_of_goods ?? 0)
-                      const expanded = expandedBatchId === batch.id
-                      const totalLost = batch.units_given_away + batch.units_given_out_extra + batch.units_spoiled + batch.units_not_sold_loss
-                      return (
-                        <Fragment key={batch.id}>
-                          <TableRow>
-                            <TableCell className="p-2">
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 w-8 p-0"
-                                aria-expanded={expanded}
-                                aria-label={expanded ? 'Hide run details' : 'Show run details'}
-                                onClick={() => setExpandedBatchId(expanded ? null : batch.id)}
-                              >
-                                {expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                              </Button>
-                            </TableCell>
-                            <TableCell className="font-medium">
-                              <div>{batch.product_name}</div>
-                              <div className="text-sm font-normal text-gray-500">
-                                {formatFriendlyDate(batch.produced_at, timezone)}
-                              </div>
-                            </TableCell>
-                            <TableCell className="tabular-nums text-green-700">
-                              {batch.units_sold_from_batch}
-                            </TableCell>
-                            <TableCell className="tabular-nums font-medium text-amber-700">
-                              {batch.units_remaining}
-                            </TableCell>
-                            <TableCell className="tabular-nums text-gray-500">
-                              {totalLost > 0 ? totalLost : '-'}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex flex-wrap gap-1 justify-end">
-                                {batch.units_remaining > 0 && batch.product_id ? (
-                                  <Button size="sm" variant="default" className="bg-amber-600 hover:bg-amber-700" asChild>
-                                    <Link href={`/dashboard/sales?batch=${batch.id}`}>Sell</Link>
-                                  </Button>
-                                ) : null}
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={batch.units_remaining <= 0}
-                                  onClick={() => {
-                                    setDisposeTarget(batch)
-                                    setDisposeQty('')
-                                  }}
-                                >
-                                  Gave away / lost
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => requestEditBatch(batch)}
-                                >
-                                  Edit
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="text-gray-400 hover:text-red-600"
-                                  aria-label={`Delete ${batch.product_name}`}
-                                  onClick={() => handleDelete(batch.id)}
-                                >
-                                  <Trash2 size={14} />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                          {expanded ? (
-                            <TableRow className="bg-gray-50/80">
-                              <TableCell colSpan={6} className="p-4 text-sm text-gray-800">
-                                <div className="space-y-4 max-w-3xl">
-                                  <div className="rounded-lg border-2 border-amber-300 bg-amber-50/90 p-4">
-                                    <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">
-                                      Ingredient cost in what&apos;s left
-                                    </p>
-                                    {tiedUp > 0 ? (
-                                      <>
-                                        <p className="text-2xl font-bold tabular-nums text-gray-900 mt-1">
-                                          {formatCurrency(tiedUp, currency)}
-                                        </p>
-                                        <p className="text-sm text-gray-700 mt-2">
-                                          That is your ingredient cost in the{' '}
-                                          <strong className="tabular-nums">{batch.units_remaining}</strong> you
-                                          have not sold yet.{' '}
-                                          {batch.product_id ? (
-                                            <>
-                                              <Link
-                                                href={`/dashboard/sales?batch=${batch.id}`}
-                                                className="text-amber-800 font-semibold underline underline-offset-2"
-                                              >
-                                                Log a sale
-                                              </Link>{' '}
-                                              to turn this into cash, or use{' '}
-                                            </>
-                                          ) : (
-                                            <>Use </>
-                                          )}
-                                          <span className="font-medium">What happened?</span> above if those
-                                          pieces will not sell.
-                                        </p>
-                                      </>
-                                    ) : (
-                                      <p className="text-sm text-gray-700 mt-1">
-                                        Nothing left unsold from this run — no money waiting on the shelf here.
-                                      </p>
-                                    )}
-                                  </div>
-
-                                  {batch.cost_of_goods != null ? (
-                                    <div
-                                      className={`rounded-xl border-2 p-5 sm:p-6 ${
-                                        runResult >= 0
-                                          ? 'border-green-400 bg-green-50/90'
-                                          : 'border-red-400 bg-red-50/90'
-                                      }`}
-                                    >
-                                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
-                                        {runResult >= 0 ? 'Ahead on this run' : 'Behind on this run'}
-                                      </p>
-                                      <p
-                                        className={`text-3xl sm:text-4xl font-extrabold tabular-nums mt-1 ${
-                                          runResult >= 0 ? 'text-green-800' : 'text-red-800'
-                                        }`}
-                                      >
-                                        {runResult >= 0 ? '+' : '-'}
-                                        {formatCurrency(Math.abs(runResult), currency)}
-                                      </p>
-                                      <p className="text-sm font-medium text-gray-800 mt-3">
-                                        {runResult < 0
-                                          ? 'You may need to increase your price.'
-                                          : batch.revenue_from_batch > 0
-                                            ? 'Nice — this run did well.'
-                                            : batch.units_remaining > 0
-                                              ? 'Still waiting for sales — make sure the price works for you.'
-                                              : 'Costs are covered for this run.'}
-                                      </p>
-                                    </div>
-                                  ) : (
-                                    <p className="text-sm text-gray-600">
-                                      Cost for this run was not recorded — add what you used next time for clearer
-                                      numbers.
-                                    </p>
-                                  )}
-
-                                  <details className="rounded-lg border border-gray-200 bg-white p-3">
-                                    <summary className="cursor-pointer font-medium text-gray-900">
-                                      See full breakdown
-                                    </summary>
-                                    <ul className="mt-3 grid sm:grid-cols-2 gap-2 text-gray-700 text-sm">
-                                      <li>
-                                        You made{' '}
-                                        <strong className="tabular-nums">{batch.units_produced}</strong> in this
-                                        run.
-                                      </li>
-                                      <li>
-                                        <strong className="tabular-nums text-green-700">
-                                          {batch.units_sold_from_batch}
-                                        </strong>{' '}
-                                        sold ·{' '}
-                                        <strong className="tabular-nums text-amber-700">
-                                          {batch.units_remaining}
-                                        </strong>{' '}
-                                        left ·{' '}
-                                        <strong className="tabular-nums text-gray-600">
-                                          {totalLost > 0 ? totalLost : 0}
-                                        </strong>{' '}
-                                        lost (not sold)
-                                      </li>
-                                      <li>
-                                        Sales money for this run:{' '}
-                                        <strong className="tabular-nums text-green-700">
-                                          {formatCurrency(batch.revenue_from_batch, currency)}
-                                        </strong>
-                                      </li>
-                                      <li>
-                                        Cost to make this run:{' '}
-                                        <strong className="tabular-nums">
-                                          {batch.cost_of_goods != null
-                                            ? formatCurrency(batch.cost_of_goods, currency)
-                                            : '—'}
-                                        </strong>
-                                      </li>
-                                    </ul>
-                                    {totalLost > 0 ? (
-                                      <p className="mt-3 text-xs text-gray-600 border-t pt-3">
-                                        Lost breakdown:{' '}
-                                        <span className="tabular-nums">
-                                          {batch.units_given_away + batch.units_given_out_extra}
-                                        </span>{' '}
-                                        given away ·{' '}
-                                        <span className="tabular-nums">
-                                          {batch.units_spoiled + batch.units_not_sold_loss}
-                                        </span>{' '}
-                                        did not become sales (waste, expired, or written off).
-                                      </p>
-                                    ) : null}
-                                    {batch.cost_of_goods != null && batch.units_produced > 0 ? (
-                                      <p className="mt-2 text-xs text-gray-600">
-                                        About{' '}
-                                        <strong className="tabular-nums">
-                                          {formatCurrency(cpu, currency)}
-                                        </strong>{' '}
-                                        ingredient cost per piece from this run.
-                                      </p>
-                                    ) : null}
-                                  </details>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ) : null}
-                        </Fragment>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Dialog
-          open={!!disposeTarget}
-          onOpenChange={(open) => {
-            if (!open) {
-              setDisposeTarget(null)
-              setDisposeQty('')
-            }
-          }}
-        >
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle className="text-xl">What happened to the rest?</DialogTitle>
-            </DialogHeader>
-            {disposeTarget ? (
-              <div className="space-y-4">
-                <div className="bg-gray-50 rounded-lg p-3 text-sm">
-                  <p className="font-medium text-gray-900">{disposeTarget.product_name}</p>
-                  <p className="text-gray-600">{disposeTarget.units_remaining} items not yet sold</p>
                 </div>
-                <div>
-                  <Label htmlFor="disposeQty" className="text-base">
-                    How many?
-                  </Label>
-                  <WholeNumberChips
-                    values={[1, 2, 5, 10]}
-                    onPick={(n) => setDisposeQty(String(n))}
-                    className="mt-2"
-                  />
-                  <Input
-                    id="disposeQty"
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    inputMode="decimal"
-                    value={disposeQty}
-                    onChange={(e) => setDisposeQty(e.target.value)}
-                    className="mt-2 min-h-11 text-base"
-                    placeholder={`Max ${disposeTarget.units_remaining}`}
-                  />
-                </div>
-                <p className="text-sm text-gray-600">What happened to them?</p>
-                <div className="grid grid-cols-1 gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-12 justify-start text-base bg-white hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200"
-                    disabled={disposeSubmitting || !disposeQty}
-                    onClick={() => void submitDispose('given_out')}
-                  >
-                    <span className="mr-2" aria-hidden>
-                      🎁
-                    </span>
-                    Gave them away (samples, gifts, staff)
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-12 justify-start text-base bg-white hover:bg-red-50 hover:text-red-700 hover:border-red-200"
-                    disabled={disposeSubmitting || !disposeQty}
-                    onClick={() => void submitDispose('not_sold')}
-                  >
-                    <span className="mr-2" aria-hidden>
-                      🗑️
-                    </span>
-                    Didn’t sell (went bad / expired)
-                  </Button>
-                </div>
-                {disposeSubmitting ? (
-                  <p className="text-sm text-gray-500 flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Saving…
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
+              )}
+
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full min-h-12 text-base text-white"
+                style={{ backgroundColor: 'var(--brand)' }}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <><Loader2 size={18} className="mr-2 animate-spin" />Saving…</>
+                ) : editingBatch ? 'Save' : 'Save production'}
+              </Button>
+            </form>
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* ── Summary cards ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: 'Made', value: totalProduced.toFixed(0), color: 'text-gray-900' },
+          { label: 'Sold', value: totalSoldFromBatches.toFixed(0), color: 'text-green-600' },
+          { label: 'Left', value: totalRemaining.toFixed(0), color: 'text-amber-700' },
+          { label: 'Lost', value: (totalGivenAtStart + totalGivenLater + batches.reduce((s, b) => s + b.units_spoiled + b.units_not_sold_loss, 0)).toFixed(0), color: 'text-gray-500' },
+        ].map(({ label, value, color }) => (
+          <Card key={label}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">{label}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${color}`}>{value}</div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* ── Batch table ── */}
+      <Card id="production-batches">
+        <CardHeader>
+          <CardTitle>Your runs</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <p className="text-center text-gray-500 py-8">Loading...</p>
+          ) : batches.length === 0 ? (
+            <p className="text-center text-gray-500 py-8 max-w-lg mx-auto leading-relaxed">
+              Nothing recorded yet. Tap Record production when you finish a run.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10 p-2" />
+                    <TableHead>Product</TableHead>
+                    <TableHead>Sold</TableHead>
+                    <TableHead>Left</TableHead>
+                    <TableHead>Lost</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {batches.map((batch) => {
+                    const cogs = batch.cost_of_goods ?? 0
+                    const cpu = costPerOutputUnit(cogs, batch.units_produced)
+                    const tiedUp = batch.units_remaining > 0 && batch.cost_of_goods != null && batch.units_produced > 0
+                      ? batch.units_remaining * cpu : 0
+                    const runResult = batch.revenue_from_batch - (batch.cost_of_goods ?? 0)
+                    const expanded = expandedBatchId === batch.id
+                    const totalLost = batch.units_given_away + batch.units_given_out_extra + batch.units_spoiled + batch.units_not_sold_loss
+                    return (
+                      <Fragment key={batch.id}>
+                        <TableRow>
+                          <TableCell className="p-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0"
+                              aria-expanded={expanded}
+                              onClick={() => setExpandedBatchId(expanded ? null : batch.id)}
+                            >
+                              {expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                            </Button>
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            <div>{batch.product_name}</div>
+                            <div className="text-sm font-normal text-gray-500">
+                              {formatFriendlyDate(batch.produced_at, timezone)}
+                            </div>
+                          </TableCell>
+                          <TableCell className="tabular-nums text-green-700">{batch.units_sold_from_batch}</TableCell>
+                          <TableCell className="tabular-nums font-medium text-amber-700">{batch.units_remaining}</TableCell>
+                          <TableCell className="tabular-nums text-gray-500">{totalLost > 0 ? totalLost : '-'}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex flex-wrap gap-1 justify-end">
+                              {batch.units_remaining > 0 && batch.product_id ? (
+                                <Button size="sm" className="text-white" style={{ backgroundColor: 'var(--brand)' }} asChild>
+                                  <Link href={`/dashboard/sales?batch=${batch.id}`}>Sell</Link>
+                                </Button>
+                              ) : null}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={batch.units_remaining <= 0}
+                                onClick={() => { setDisposeTarget(batch); setDisposeQty('') }}
+                              >
+                                Gave away / lost
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => requestEditBatch(batch)}>Edit</Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-gray-400 hover:text-red-600"
+                                aria-label={`Delete ${batch.product_name}`}
+                                onClick={() => handleDelete(batch.id)}
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {expanded ? (
+                          <TableRow className="bg-gray-50/80">
+                            <TableCell colSpan={6} className="p-4 text-sm text-gray-800">
+                              <div className="space-y-4 max-w-3xl">
+                                <div className="rounded-lg border-2 p-4" style={{ borderColor: 'var(--brand-mid)', backgroundColor: 'var(--brand-light)' }}>
+                                  <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--brand-dark)' }}>
+                                    Cost in what is left
+                                  </p>
+                                  {tiedUp > 0 ? (
+                                    <>
+                                      <p className="text-2xl font-bold tabular-nums text-gray-900 mt-1">
+                                        {formatCurrency(tiedUp, currency)}
+                                      </p>
+                                      <p className="text-sm text-gray-700 mt-2">
+                                        Your ingredient cost for the{' '}
+                                        <strong className="tabular-nums">{batch.units_remaining}</strong> you have not sold yet.{' '}
+                                        {batch.product_id ? (
+                                          <>
+                                            <Link href={`/dashboard/sales?batch=${batch.id}`} className="font-semibold underline" style={{ color: 'var(--brand-dark)' }}>
+                                              Log a sale
+                                            </Link>{' '}
+                                            to turn this into cash, or use{' '}
+                                          </>
+                                        ) : (
+                                          <>Use </>
+                                        )}
+                                        <span className="font-medium">What happened?</span> above if those pieces will not sell.
+                                      </p>
+                                    </>
+                                  ) : (
+                                    <p className="text-sm text-gray-700 mt-1">
+                                      Nothing left unsold from this run.
+                                    </p>
+                                  )}
+                                </div>
+
+                                {batch.cost_of_goods != null ? (
+                                  <div className={`rounded-xl border-2 p-5 sm:p-6 ${runResult >= 0 ? 'border-green-400 bg-green-50/90' : 'border-red-400 bg-red-50/90'}`}>
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+                                      {runResult >= 0 ? 'Ahead on this run' : 'Behind on this run'}
+                                    </p>
+                                    <p className={`text-3xl sm:text-4xl font-extrabold tabular-nums mt-1 ${runResult >= 0 ? 'text-green-800' : 'text-red-800'}`}>
+                                      {runResult >= 0 ? '+' : '-'}{formatCurrency(Math.abs(runResult), currency)}
+                                    </p>
+                                    <p className="text-sm font-medium text-gray-800 mt-3">
+                                      {runResult < 0 ? 'You may need to increase your price.'
+                                        : batch.revenue_from_batch > 0 ? 'Nice — this run did well.'
+                                          : batch.units_remaining > 0 ? 'Still waiting for sales — make sure the price works.'
+                                            : 'Costs are covered for this run.'}
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p className="text-sm text-gray-600">
+                                    Cost for this run was not recorded. Add what you used next time for clearer numbers.
+                                  </p>
+                                )}
+
+                                <details className="rounded-lg border border-gray-200 bg-white p-3">
+                                  <summary className="cursor-pointer font-medium text-gray-900">See full breakdown</summary>
+                                  <ul className="mt-3 grid sm:grid-cols-2 gap-2 text-gray-700 text-sm">
+                                    <li>You made <strong className="tabular-nums">{batch.units_produced}</strong> in this run.</li>
+                                    <li>
+                                      <strong className="tabular-nums text-green-700">{batch.units_sold_from_batch}</strong> sold ·{' '}
+                                      <strong className="tabular-nums text-amber-700">{batch.units_remaining}</strong> left ·{' '}
+                                      <strong className="tabular-nums text-gray-600">{totalLost > 0 ? totalLost : 0}</strong> lost
+                                    </li>
+                                    <li>Sales money: <strong className="tabular-nums text-green-700">{formatCurrency(batch.revenue_from_batch, currency)}</strong></li>
+                                    <li>Cost to make: <strong className="tabular-nums">{batch.cost_of_goods != null ? formatCurrency(batch.cost_of_goods, currency) : '—'}</strong></li>
+                                  </ul>
+                                  {totalLost > 0 ? (
+                                    <p className="mt-3 text-xs text-gray-600 border-t pt-3">
+                                      Lost: <span className="tabular-nums">{batch.units_given_away + batch.units_given_out_extra}</span> given away · <span className="tabular-nums">{batch.units_spoiled + batch.units_not_sold_loss}</span> did not become sales.
+                                    </p>
+                                  ) : null}
+                                  {batch.cost_of_goods != null && batch.units_produced > 0 ? (
+                                    <p className="mt-2 text-xs text-gray-600">
+                                      About <strong className="tabular-nums">{formatCurrency(cpu, currency)}</strong> ingredient cost per piece.
+                                    </p>
+                                  ) : null}
+                                </details>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : null}
+                      </Fragment>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── What happened? dialog ── */}
+      <Dialog
+        open={!!disposeTarget}
+        onOpenChange={(open) => { if (!open) { setDisposeTarget(null); setDisposeQty('') } }}
+      >
+        <DialogContent className="sm:max-w-md overflow-hidden p-0">
+          <div className="px-6 pt-5 pb-4" style={{ backgroundColor: 'var(--brand-light)', borderBottom: '1px solid var(--brand-mid)' }}>
+            <DialogHeader>
+              <DialogTitle className="text-xl" style={{ color: 'var(--brand-dark)' }}>What happened to the rest?</DialogTitle>
+            </DialogHeader>
+          </div>
+          {disposeTarget ? (
+            <div className="space-y-4 px-6 py-5">
+              <div className="rounded-lg p-3 text-sm" style={{ backgroundColor: 'var(--brand-light)' }}>
+                <p className="font-medium text-gray-900">{disposeTarget.product_name}</p>
+                <p className="text-gray-600">{disposeTarget.units_remaining} items not yet sold</p>
+              </div>
+              <div>
+                <Label htmlFor="disposeQty" className="text-base">How many?</Label>
+                <WholeNumberChips values={[1, 2, 5, 10]} onPick={(n) => setDisposeQty(String(n))} className="mt-2" />
+                <Input
+                  id="disposeQty"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  inputMode="decimal"
+                  value={disposeQty}
+                  onChange={(e) => setDisposeQty(e.target.value)}
+                  className="mt-2 min-h-11 text-base"
+                  placeholder={`Max ${disposeTarget.units_remaining}`}
+                />
+              </div>
+              <p className="text-sm text-gray-600">What happened to them?</p>
+              <div className="grid grid-cols-1 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-12 justify-start text-base bg-white hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200"
+                  disabled={disposeSubmitting || !disposeQty}
+                  onClick={() => void submitDispose('given_out')}
+                >
+                  <span className="mr-2">🎁</span>
+                  Gave them away (samples, gifts, staff)
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-12 justify-start text-base bg-white hover:bg-red-50 hover:text-red-700 hover:border-red-200"
+                  disabled={disposeSubmitting || !disposeQty}
+                  onClick={() => void submitDispose('not_sold')}
+                >
+                  <span className="mr-2">🗑️</span>
+                  Did not sell (went bad / expired)
+                </Button>
+              </div>
+              {disposeSubmitting ? (
+                <p className="text-sm text-gray-500 flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Saving…
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

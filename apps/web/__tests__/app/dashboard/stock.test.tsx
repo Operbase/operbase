@@ -150,14 +150,14 @@ describe('StockPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /^stock$/i })).toBeInTheDocument()
       expect(
-        screen.getByText(/bags of flour|say out loud/i)
+        screen.getByText(/we show what each|when you buy something/i)
       ).toBeInTheDocument()
     })
   })
 
   it('shows Other item button', async () => {
     renderStock()
-    expect(screen.getByRole('button', { name: /other item/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /other ingredient/i })).toBeInTheDocument()
   })
 
   it('shows ingredient tab by default', async () => {
@@ -183,11 +183,11 @@ describe('StockPage', () => {
     const user = userEvent.setup()
     renderStock()
 
-    await user.click(screen.getByRole('button', { name: /other item/i }))
+    await user.click(screen.getByRole('button', { name: /other ingredient/i }))
 
     await waitFor(() => {
       expect(screen.getByRole('dialog')).toBeInTheDocument()
-      expect(screen.getByText('Add item')).toBeInTheDocument()
+      expect(screen.getByText('Add ingredient')).toBeInTheDocument()
     })
   })
 
@@ -195,7 +195,7 @@ describe('StockPage', () => {
     const user = userEvent.setup()
     renderStock()
 
-    await user.click(screen.getByRole('button', { name: /other item/i }))
+    await user.click(screen.getByRole('button', { name: /other ingredient/i }))
     const dialog = await screen.findByRole('dialog')
 
     await user.click(within(dialog).getByRole('button', { name: /^save$/i }))
@@ -240,11 +240,11 @@ describe('StockPage', () => {
 
     renderStock()
 
-    await user.click(screen.getByRole('button', { name: /other item/i }))
+    await user.click(screen.getByRole('button', { name: /other ingredient/i }))
     const dialog = await screen.findByRole('dialog')
 
     await user.type(within(dialog).getByLabelText(/what is it/i), 'Butter')
-    await user.type(within(dialog).getByLabelText(/what you pay for one purchase/i), '3')
+    await user.type(within(dialog).getByLabelText(/what you paid for one/i), '3')
     await user.click(within(dialog).getByRole('button', { name: /^save$/i }))
 
     await waitFor(() => {

@@ -132,9 +132,8 @@ describe('DashboardHomeClient', () => {
 
   it('shows at-risk section when items are left', () => {
     renderHome()
-    expect(screen.getByText(/What is still waiting to sell/)).toBeTruthy()
-    expect(screen.getByText(/24/)).toBeTruthy()
-    expect(screen.getByText(/If they do not sell, you lose this money/)).toBeTruthy()
+    expect(screen.getByText(/24 items still unsold/)).toBeTruthy()
+    expect(screen.getByText(/That is what it cost you to make them/)).toBeTruthy()
     expect(screen.getByRole('link', { name: /sell now/i })).toHaveAttribute('href', '/dashboard/sales')
   })
 
@@ -215,14 +214,14 @@ describe('DashboardHomeClient', () => {
 
   it('shows monthly spend inside details when spend data exists', () => {
     renderHome({ monthlySpend: SPEND })
-    expect(screen.getByText(/More details — what you spent this month/)).toBeTruthy()
+    expect(screen.getByText(/More details: what you spent this month/)).toBeTruthy()
     expect(screen.getByText('Flour')).toBeTruthy()
     expect(screen.getByText('Sugar')).toBeTruthy()
   })
 
   it('does NOT show monthly spend details when empty', () => {
     renderHome({ monthlySpend: [] })
-    expect(screen.queryByText(/More details — what you spent this month/)).toBeNull()
+    expect(screen.queryByText(/More details: what you spent this month/)).toBeNull()
   })
 
   it('shows loss headline when today profit is negative', () => {

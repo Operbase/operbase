@@ -67,7 +67,16 @@ export default function SignupPage() {
       toast.success('Account created. Check your email to verify, then sign in.')
       router.push('/login')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Signup failed')
+      const msg = error instanceof Error ? error.message : ''
+      if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already exists')) {
+        toast.error('An account with this email already exists.', {
+          description: 'Sign in instead, or use "Forgot password" if you cannot get in.',
+          action: { label: 'Sign in', onClick: () => router.push('/login') },
+          duration: 8000,
+        })
+      } else {
+        toast.error(msg || 'Signup failed')
+      }
     } finally {
       setIsLoading(false)
     }

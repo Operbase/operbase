@@ -46,27 +46,27 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen flex bg-white">
+    <main className="min-h-screen flex" style={{ backgroundColor: '#fdfcfa' }}>
       {/* Left side - Form */}
       <div className="w-full lg:w-1/2 flex flex-col justify-center px-6 md:px-12 py-12">
         <div className="max-w-md mx-auto w-full">
-          <div className="flex items-center gap-2 mb-12">
-            <div className="w-10 h-10 bg-amber-600 rounded-lg flex items-center justify-center">
-              <Wheat className="text-white" size={24} />
+          <Link href="/" className="flex items-center gap-2.5 mb-12 group w-fit">
+            <div className="w-10 h-10 bg-amber-600 rounded-xl flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow">
+              <Wheat className="text-white" size={22} />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">Operbase</h1>
-          </div>
+            <h1 className="text-xl font-bold text-gray-900">Operbase</h1>
+          </Link>
 
           <div className="mb-8">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">Welcome back</h2>
-            <p className="text-gray-600">Sign in to see your stock, batches, and sales.</p>
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2 tracking-tight">Welcome back</h2>
+            <p className="text-gray-500">Sign in to see your stock, batches, and sales.</p>
           </div>
 
           {/* Google Sign In */}
           <Button
             type="button"
             variant="outline"
-            className="w-full py-3 rounded-lg border border-gray-200 flex items-center justify-center gap-3 mb-6"
+            className="w-full py-3 rounded-xl border border-gray-200 bg-white flex items-center justify-center gap-3 mb-6 shadow-sm hover:shadow-md transition-all"
             onClick={handleGoogleSignIn}
             disabled={isGoogleLoading}
           >
@@ -91,7 +91,7 @@ export default function LoginPage() {
 
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <Label htmlFor="email" className="text-sm font-semibold text-gray-900 mb-2 block">
+              <Label htmlFor="email" className="text-sm font-semibold text-gray-800 mb-1.5 block">
                 Email address
               </Label>
               <Input
@@ -101,12 +101,12 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                className="px-4 py-3 border border-gray-200 rounded-xl bg-white shadow-sm focus-visible:ring-amber-500/40"
               />
             </div>
 
             <div>
-              <Label htmlFor="password" className="text-sm font-semibold text-gray-900 mb-2 block">
+              <Label htmlFor="password" className="text-sm font-semibold text-gray-800 mb-1.5 block">
                 Password
               </Label>
               <div className="relative">
@@ -117,7 +117,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="px-4 py-3 pr-12 border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  className="px-4 py-3 pr-12 border border-gray-200 rounded-xl bg-white shadow-sm focus-visible:ring-amber-500/40"
                 />
                 <button
                   type="button"
@@ -131,10 +131,16 @@ export default function LoginPage() {
               </div>
             </div>
 
+            <div className="flex justify-end">
+              <Link href="/forgot-password" className="text-sm text-amber-600 hover:text-amber-700">
+                Forgot password?
+              </Link>
+            </div>
+
             <Button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-amber-600 hover:bg-amber-700 text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2"
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2 shadow-sm hover:shadow-md transition-all min-h-[48px]"
             >
               {isLoading ? (
                 <>
@@ -162,22 +168,27 @@ export default function LoginPage() {
       </div>
 
       {/* Right side */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 flex-col justify-center items-center p-12">
-        <div className="max-w-md text-center">
-          <div className="inline-block p-4 bg-white rounded-2xl shadow-lg mb-8">
-            <Wheat className="text-amber-600" size={48} />
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-amber-50 via-orange-50/80 to-amber-100 flex-col justify-center items-center p-12 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-30"
+          style={{
+            backgroundImage: 'radial-gradient(circle at 30% 70%, rgba(245,158,11,0.15) 0%, transparent 60%), radial-gradient(circle at 80% 20%, rgba(234,88,12,0.1) 0%, transparent 50%)',
+          }}
+        />
+        <div className="max-w-sm text-center relative z-10">
+          <div className="inline-flex p-5 bg-white rounded-3xl shadow-xl mb-8">
+            <Wheat className="text-amber-600" size={44} />
           </div>
-          <h3 className="text-3xl font-bold text-gray-900 mb-4">Know what you made, not just what you sold</h3>
-          <p className="text-gray-600 text-lg leading-relaxed">
+          <h3 className="text-2xl font-bold text-gray-900 mb-3 tracking-tight">Know what you made, not just what you sold</h3>
+          <p className="text-gray-600 leading-relaxed">
             Operbase links what you buy, what you bake or make, and what goes out the door.
           </p>
-          <div className="mt-12 space-y-3">
+          <div className="mt-10 space-y-3 text-left">
             {['Stock that matches the kitchen', 'Batches tied to real cost', 'Sales with margin in plain sight'].map((item) => (
-              <div key={item} className="flex items-start gap-3">
-                <div className="w-5 h-5 rounded-full bg-amber-600 flex items-center justify-center flex-shrink-0 mt-1">
-                  <span className="text-white text-xs">✓</span>
+              <div key={item} className="flex items-center gap-3">
+                <div className="w-5 h-5 rounded-full bg-amber-600 flex items-center justify-center flex-shrink-0">
+                  <span className="text-white text-xs font-bold">✓</span>
                 </div>
-                <span className="text-gray-700">{item}</span>
+                <span className="text-gray-700 text-sm">{item}</span>
               </div>
             ))}
           </div>

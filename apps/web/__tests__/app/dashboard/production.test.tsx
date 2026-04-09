@@ -141,7 +141,7 @@ describe('ProductionPage', () => {
   it('renders the page header', async () => {
     renderProduction()
     expect(screen.getByRole('heading', { name: /^production$/i })).toBeInTheDocument()
-    expect(screen.getByText(/cost as you type/i)).toBeInTheDocument()
+    expect(screen.getByText(/Record what you made/i)).toBeInTheDocument()
   })
 
   it('shows Record production button', () => {
@@ -191,7 +191,7 @@ describe('ProductionPage', () => {
 
     await user.click(within(dialog).getByRole('button', { name: /save production/i }))
 
-    expect(toast.error).toHaveBeenCalledWith('Enter the product name.')
+    expect(toast.error).toHaveBeenCalledWith('Pick or type a product name.')
   })
 
   it('creates a batch with valid input via RPC', async () => {
