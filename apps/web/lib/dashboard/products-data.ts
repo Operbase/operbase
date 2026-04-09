@@ -4,6 +4,7 @@ export type ProductVariantRow = {
   id: string
   name: string
   sort_order: number
+  cost_per_unit: number | null
 }
 
 export type ProductAddonRow = {
@@ -31,7 +32,7 @@ export async function loadProductCatalog(
     .from('products')
     .select(`
       id, name, sale_price, is_active, created_at,
-      product_variants(id, name, sort_order),
+      product_variants(id, name, sort_order, cost_per_unit),
       product_addons(id, name, extra_cost, sort_order)
     `)
     .eq('business_id', businessId)
@@ -46,9 +47,10 @@ export async function loadProductCatalog(
     sale_price: Number(p.sale_price ?? 0),
     is_active: p.is_active as boolean,
     created_at: p.created_at as string,
-    variants: ((p.product_variants as ProductVariantRow[] | null) ?? [])
+    variants: ((p.product_variants as (ProductVariantRow & { sort_order: number })[] | null) ?? [])
       .slice()
-      .sort((a, b) => a.sort_order - b.sort_order),
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((v) => ({ ...v, cost_per_unit: v.cost_per_unit ?? null })),
     addons: ((p.product_addons as ProductAddonRow[] | null) ?? [])
       .slice()
       .sort((a, b) => a.sort_order - b.sort_order),

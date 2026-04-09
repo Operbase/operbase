@@ -33,6 +33,13 @@ export function DashboardBrandCss() {
         [data-dashboard] .border-orange-100 { border-color: var(--brand-light) !important; }
         [data-dashboard] .border-orange-200 { border-color: var(--brand-mid) !important; }
         [data-dashboard] .text-orange-900 { color: var(--brand-dark) !important; }
+        [data-dashboard] .border-amber-300 { border-color: color-mix(in srgb, var(--brand) 40%, white) !important; }
+        [data-dashboard] .hover\\:border-amber-300:hover { border-color: color-mix(in srgb, var(--brand) 40%, white) !important; }
+        [data-dashboard] .text-amber-950 { color: var(--brand-dark) !important; }
+        [data-dashboard] .bg-amber-950 { background-color: var(--brand-dark) !important; }
+        [data-dashboard] .text-amber-100 { color: var(--brand-light) !important; }
+        [data-dashboard] .border-amber-400 { border-color: color-mix(in srgb, var(--brand) 60%, white) !important; }
+        [data-dashboard] .hover\\:border-amber-400:hover { border-color: color-mix(in srgb, var(--brand) 60%, white) !important; }
       `}</style>
   )
 }

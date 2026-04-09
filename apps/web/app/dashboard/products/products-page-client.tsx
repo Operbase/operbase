@@ -15,19 +15,39 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { createClient } from '@/lib/supabase/client'
 import { useBusinessContext } from '@/providers/business-provider'
+import { formatCurrency } from '@/lib/format-currency'
 import { friendlyError } from '@/lib/errors'
 import type { ProductCatalogRow } from '@/lib/dashboard/products-data'
 
 type WizardStep = 1 | 2 | 3
 
+/** A variant row in the Step-2 form */
+type VariantDraft = {
+  name: string
+  /** What it costs to make one of this type */
+  cost: string
+}
+
 type AddonDraft = { name: string; extraCost: string }
 
-function emptyVariants(): string[] {
-  return ['']
+function emptyVariants(): VariantDraft[] {
+  return [{ name: '', cost: '' }]
 }
 
 function emptyAddons(): AddonDraft[] {
   return [{ name: '', extraCost: '' }]
+}
+
+const STEP_LABELS: Record<WizardStep, string> = {
+  1: 'What do you sell?',
+  2: 'Does it come in different types?',
+  3: 'Any extras customers can add?',
+}
+
+const STEP_HINTS: Record<WizardStep, string> = {
+  1: 'Give it a name your whole team will recognise.',
+  2: 'E.g. "Oat", "Double Chocolate", "Large". Skip if it only comes one way.\nAdd what it costs you to make each type — we use this to work out profit.',
+  3: 'E.g. "Nuts", "Coconut", "Extra sauce". Skip if there are none.',
 }
 
 export function ProductsPageClient({
@@ -35,7 +55,7 @@ export function ProductsPageClient({
 }: {
   initialProducts: ProductCatalogRow[]
 }) {
-  const { businessId } = useBusinessContext()
+  const { businessId, currency } = useBusinessContext()
   const [products, setProducts] = useState<ProductCatalogRow[]>(initialProducts)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [step, setStep] = useState<WizardStep>(1)
@@ -45,8 +65,8 @@ export function ProductsPageClient({
   // Step-1 state
   const [productName, setProductName] = useState('')
 
-  // Step-2 state: variant name strings
-  const [variants, setVariants] = useState<string[]>(emptyVariants())
+  // Step-2 state: type name + cost
+  const [variants, setVariants] = useState<VariantDraft[]>(emptyVariants())
 
   // Step-3 state: addon name + optional price
   const [addons, setAddons] = useState<AddonDraft[]>(emptyAddons())
@@ -68,7 +88,10 @@ export function ProductsPageClient({
     setProductName(product.name)
     setVariants(
       product.variants.length > 0
-        ? product.variants.map((v) => v.name)
+        ? product.variants.map((v) => ({
+            name: v.name,
+            cost: v.cost_per_unit != null ? String(v.cost_per_unit) : '',
+          }))
         : emptyVariants()
     )
     setAddons(
@@ -113,15 +136,15 @@ export function ProductsPageClient({
   // ─── variant helpers ───────────────────────────────────────────────────────
 
   function addVariantRow() {
-    setVariants((v) => [...v, ''])
+    setVariants((v) => [...v, { name: '', cost: '' }])
   }
 
   function removeVariantRow(i: number) {
     setVariants((v) => v.filter((_, idx) => idx !== i))
   }
 
-  function setVariantName(i: number, val: string) {
-    setVariants((v) => v.map((x, idx) => (idx === i ? val : x)))
+  function setVariantField(i: number, field: keyof VariantDraft, val: string) {
+    setVariants((v) => v.map((x, idx) => (idx === i ? { ...x, [field]: val } : x)))
   }
 
   // ─── addon helpers ─────────────────────────────────────────────────────────
@@ -150,8 +173,12 @@ export function ProductsPageClient({
     const nameTrim = productName.trim()
 
     const validVariants = variants
-      .map((v) => v.trim())
-      .filter((v) => v.length > 0)
+      .filter((v) => v.name.trim().length > 0)
+      .map((v, i) => ({
+        name: v.name.trim(),
+        cost_per_unit: v.cost.trim() !== '' ? parseFloat(v.cost) || null : null,
+        sort_order: i,
+      }))
 
     const validAddons = addons
       .filter((a) => a.name.trim().length > 0)
@@ -166,7 +193,6 @@ export function ProductsPageClient({
       let productId: string
 
       if (editingId) {
-        // Update name if changed
         const { error: updErr } = await supabase
           .from('products')
           .update({ name: nameTrim })
@@ -175,7 +201,6 @@ export function ProductsPageClient({
         if (updErr) throw updErr
         productId = editingId
 
-        // Replace variants and addons entirely
         await Promise.all([
           supabase.from('product_variants').delete().eq('product_id', productId),
           supabase.from('product_addons').delete().eq('product_id', productId),
@@ -190,28 +215,27 @@ export function ProductsPageClient({
         productId = newProd.id as string
       }
 
-      // Insert variants
       if (validVariants.length > 0) {
         const { error: vErr } = await supabase.from('product_variants').insert(
-          validVariants.map((name, i) => ({
+          validVariants.map((v) => ({
             product_id: productId,
             business_id: businessId,
-            name,
-            sort_order: i,
+            name: v.name,
+            cost_per_unit: v.cost_per_unit,
+            sort_order: v.sort_order,
           }))
         )
         if (vErr) throw vErr
       }
 
-      // Insert addons
       if (validAddons.length > 0) {
         const { error: aErr } = await supabase.from('product_addons').insert(
-          validAddons.map((a, i) => ({
+          validAddons.map((a) => ({
             product_id: productId,
             business_id: businessId,
             name: a.name,
             extra_cost: a.extra_cost,
-            sort_order: i,
+            sort_order: a.sort_order,
           }))
         )
         if (aErr) throw aErr
@@ -228,7 +252,7 @@ export function ProductsPageClient({
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this product? All its variants and add-ons will also be removed.')) return
+    if (!confirm('Delete this product? All its types and extras will also be removed.')) return
     if (!businessId) return
     const supabase = createClient()
     const { error } = await supabase
@@ -251,7 +275,7 @@ export function ProductsPageClient({
       .from('products')
       .select(`
         id, name, sale_price, is_active, created_at,
-        product_variants(id, name, sort_order),
+        product_variants(id, name, sort_order, cost_per_unit),
         product_addons(id, name, extra_cost, sort_order)
       `)
       .eq('business_id', businessId)
@@ -265,9 +289,10 @@ export function ProductsPageClient({
         sale_price: Number(p.sale_price ?? 0),
         is_active: p.is_active as boolean,
         created_at: p.created_at as string,
-        variants: ((p.product_variants as { id: string; name: string; sort_order: number }[] | null) ?? [])
+        variants: ((p.product_variants as { id: string; name: string; sort_order: number; cost_per_unit: number | null }[] | null) ?? [])
           .slice()
-          .sort((a, b) => a.sort_order - b.sort_order),
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((v) => ({ ...v, cost_per_unit: v.cost_per_unit ?? null })),
         addons: ((p.product_addons as { id: string; name: string; extra_cost: number | null; sort_order: number }[] | null) ?? [])
           .slice()
           .sort((a, b) => a.sort_order - b.sort_order),
@@ -277,38 +302,36 @@ export function ProductsPageClient({
 
   // ─── render ────────────────────────────────────────────────────────────────
 
-  const stepLabel = step === 1 ? 'What do you sell?' : step === 2 ? 'Any types or variants?' : 'Any extras customers can add?'
-  const stepHint =
-    step === 1
-      ? 'Give it a name your whole team will recognise.'
-      : step === 2
-        ? 'E.g. "Oat", "Double Chocolate", "Large". Skip if it only comes one way.'
-        : 'E.g. "Nuts", "Coconut", "Extra sauce". Skip if there are none.'
-
   return (
-    <div className="space-y-6 p-4 sm:p-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Products</h1>
-          <p className="text-sm text-gray-500 mt-1">Your catalog — variants and extras included.</p>
+          <h1 className="text-3xl font-bold text-gray-900">Products</h1>
+          <p className="text-gray-600 mt-1">
+            What you sell — with types and extras. Set the cost per type so profit is always accurate.
+          </p>
         </div>
         <Button
           onClick={openCreate}
+          size="lg"
           className="bg-amber-600 hover:bg-amber-700 shrink-0"
         >
-          <Plus size={16} className="mr-2" />
+          <Plus size={18} className="mr-2" />
           Add product
         </Button>
       </div>
 
       {/* ── Product list ─────────────────────────────────────────────── */}
       {products.length === 0 ? (
-        <div className="text-center py-16 text-gray-500">
-          <p className="text-lg font-medium">No products yet.</p>
-          <p className="text-sm mt-1">Add your first product to get started.</p>
-          <Button onClick={openCreate} className="mt-4 bg-amber-600 hover:bg-amber-700">
+        <div className="text-center py-16 text-gray-500 border border-dashed rounded-xl">
+          <p className="text-lg font-medium text-gray-700">No products yet</p>
+          <p className="text-sm mt-1 max-w-xs mx-auto">
+            Add your products here. Types (e.g. Oat, Large) and extras (e.g. Nuts) can be added
+            to each one.
+          </p>
+          <Button onClick={openCreate} className="mt-5 bg-amber-600 hover:bg-amber-700">
             <Plus size={16} className="mr-2" />
-            Add product
+            Add your first product
           </Button>
         </div>
       ) : (
@@ -324,10 +347,14 @@ export function ProductsPageClient({
 
                   {product.variants.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-2">
-                      <span className="text-xs text-gray-500 self-center">Types:</span>
                       {product.variants.map((v) => (
-                        <Badge key={v.id} variant="secondary" className="text-xs">
+                        <Badge key={v.id} variant="secondary" className="text-xs gap-1">
                           {v.name}
+                          {v.cost_per_unit != null && (
+                            <span className="text-gray-500 font-normal">
+                              · {formatCurrency(v.cost_per_unit, currency)} cost
+                            </span>
+                          )}
                         </Badge>
                       ))}
                     </div>
@@ -335,16 +362,15 @@ export function ProductsPageClient({
 
                   {product.addons.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      <span className="text-xs text-gray-500 self-center">Extras:</span>
                       {product.addons.map((a) => (
                         <Badge
                           key={a.id}
                           variant="outline"
                           className="text-xs border-amber-300 text-amber-800 bg-amber-50"
                         >
-                          {a.name}
+                          + {a.name}
                           {a.extra_cost != null && a.extra_cost > 0
-                            ? ` +${a.extra_cost}`
+                            ? ` (${formatCurrency(a.extra_cost, currency)})`
                             : ''}
                         </Badge>
                       ))}
@@ -352,7 +378,7 @@ export function ProductsPageClient({
                   )}
 
                   {product.variants.length === 0 && product.addons.length === 0 && (
-                    <p className="text-xs text-gray-400 mt-1">No variants or extras</p>
+                    <p className="text-xs text-gray-400 mt-1">One type, no extras</p>
                   )}
                 </div>
 
@@ -391,7 +417,7 @@ export function ProductsPageClient({
           </DialogHeader>
 
           {/* Step indicator */}
-          <div className="flex items-center gap-2 text-sm text-gray-500">
+          <div className="flex items-center gap-2 text-sm">
             {([1, 2, 3] as WizardStep[]).map((s, i) => (
               <div key={s} className="flex items-center gap-2">
                 <span
@@ -408,10 +434,10 @@ export function ProductsPageClient({
                 {i < 2 && <ChevronRight size={12} className="text-gray-300" />}
               </div>
             ))}
-            <span className="ml-1 font-medium text-gray-700">{stepLabel}</span>
+            <span className="ml-1 font-medium text-gray-700">{STEP_LABELS[step]}</span>
           </div>
 
-          <p className="text-sm text-gray-500 -mt-1">{stepHint}</p>
+          <p className="text-sm text-gray-500 -mt-1 whitespace-pre-line">{STEP_HINTS[step]}</p>
 
           {/* ── Step 1: Product name ─────────────────────────────────── */}
           {step === 1 && (
@@ -437,33 +463,50 @@ export function ProductsPageClient({
             </div>
           )}
 
-          {/* ── Step 2: Variants ─────────────────────────────────────── */}
+          {/* ── Step 2: Variants (types) ─────────────────────────────── */}
           {step === 2 && (
             <div className="space-y-3">
-              <div className="space-y-2">
+              <div className="grid grid-cols-[1fr_auto_auto] gap-x-2 gap-y-2 items-center">
+                <span className="text-xs font-medium text-gray-500">Type name</span>
+                <span className="text-xs font-medium text-gray-500 w-28 text-center">Cost to make</span>
+                <span className="w-7" />
+
                 {variants.map((v, i) => (
-                  <div key={i} className="flex gap-2 items-center">
+                  <>
                     <Input
-                      value={v}
-                      onChange={(e) => setVariantName(i, e.target.value)}
-                      placeholder={`Variant ${i + 1} — e.g. "Oat"`}
-                      className="min-h-10 text-base flex-1"
+                      key={`name-${i}`}
+                      value={v.name}
+                      onChange={(e) => setVariantField(i, 'name', e.target.value)}
+                      placeholder={i === 0 ? 'e.g. Oat' : i === 1 ? 'e.g. Double Choc' : `Type ${i + 1}`}
+                      className="min-h-10 text-base"
                       autoFocus={i === variants.length - 1 && i > 0}
                     />
-                    {variants.length > 1 && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="text-gray-400 hover:text-red-600 shrink-0"
-                        onClick={() => removeVariantRow(i)}
-                      >
-                        <X size={14} />
-                      </Button>
-                    )}
-                  </div>
+                    <Input
+                      key={`cost-${i}`}
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={v.cost}
+                      onChange={(e) => setVariantField(i, 'cost', e.target.value)}
+                      placeholder="0.00"
+                      className="min-h-10 text-sm w-28 shrink-0"
+                    />
+                    <div key={`del-${i}`} className="w-7 flex justify-center">
+                      {variants.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeVariantRow(i)}
+                          className="text-gray-300 hover:text-red-500 transition-colors"
+                          aria-label={`Remove type ${i + 1}`}
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </>
                 ))}
               </div>
+
               <Button
                 type="button"
                 variant="outline"
@@ -496,39 +539,47 @@ export function ProductsPageClient({
           {/* ── Step 3: Add-ons ──────────────────────────────────────── */}
           {step === 3 && (
             <div className="space-y-3">
-              <div className="space-y-2">
+              <div className="grid grid-cols-[1fr_auto_auto] gap-x-2 gap-y-2 items-center">
+                <span className="text-xs font-medium text-gray-500">Extra name</span>
+                <span className="text-xs font-medium text-gray-500 w-28 text-center">Extra charge</span>
+                <span className="w-7" />
+
                 {addons.map((a, i) => (
-                  <div key={i} className="flex gap-2 items-center">
+                  <>
                     <Input
+                      key={`aname-${i}`}
                       value={a.name}
                       onChange={(e) => setAddonField(i, 'name', e.target.value)}
-                      placeholder={`Extra ${i + 1} — e.g. "Nuts"`}
-                      className="min-h-10 text-base flex-1"
+                      placeholder={i === 0 ? 'e.g. Nuts' : i === 1 ? 'e.g. Coconut' : `Extra ${i + 1}`}
+                      className="min-h-10 text-base"
                       autoFocus={i === addons.length - 1 && i > 0}
                     />
                     <Input
+                      key={`acost-${i}`}
                       type="number"
                       step="0.01"
                       min="0"
                       value={a.extraCost}
                       onChange={(e) => setAddonField(i, 'extraCost', e.target.value)}
-                      placeholder="Extra cost?"
+                      placeholder="0.00"
                       className="min-h-10 text-sm w-28 shrink-0"
                     />
-                    {addons.length > 1 && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="text-gray-400 hover:text-red-600 shrink-0"
-                        onClick={() => removeAddonRow(i)}
-                      >
-                        <X size={14} />
-                      </Button>
-                    )}
-                  </div>
+                    <div key={`adel-${i}`} className="w-7 flex justify-center">
+                      {addons.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeAddonRow(i)}
+                          className="text-gray-300 hover:text-red-500 transition-colors"
+                          aria-label={`Remove extra ${i + 1}`}
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </>
                 ))}
               </div>
+
               <Button
                 type="button"
                 variant="outline"
@@ -544,14 +595,14 @@ export function ProductsPageClient({
                 <div className="flex gap-2">
                   <Button
                     variant="ghost"
-                    onClick={() => { setAddons(emptyAddons()); handleSave() }}
+                    onClick={() => { setAddons(emptyAddons()); void handleSave() }}
                     className="text-gray-500"
                     disabled={isSubmitting}
                   >
                     Skip & save
                   </Button>
                   <Button
-                    onClick={handleSave}
+                    onClick={() => void handleSave()}
                     className="bg-amber-600 hover:bg-amber-700"
                     disabled={isSubmitting}
                   >

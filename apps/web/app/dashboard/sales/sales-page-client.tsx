@@ -75,7 +75,7 @@ type SaleSource =
     }
   | { kind: 'quick'; productId: string; productName: string; variantId: string | null }
 
-type ProductVariantOption = { id: string; name: string }
+type ProductVariantOption = { id: string; name: string; cost_per_unit: number | null }
 type ProductAddonOption = { id: string; name: string; extra_cost: number | null }
 type ProductWithMeta = { id: string; name: string; variants: ProductVariantOption[]; addons: ProductAddonOption[] }
 
@@ -247,7 +247,7 @@ export function SalesPageClient({
     const [prodRes, batchRes] = await Promise.all([
       supabase
         .from('products')
-        .select('id, name, product_variants(id, name, sort_order), product_addons(id, name, extra_cost, sort_order)')
+        .select('id, name, product_variants(id, name, sort_order, cost_per_unit), product_addons(id, name, extra_cost, sort_order)')
         .eq('business_id', businessId)
         .order('name'),
       supabase
@@ -263,12 +263,14 @@ export function SalesPageClient({
       const catalog = (prodRes.data as Record<string, unknown>[]).map((p) => ({
         id: p.id as string,
         name: p.name as string,
-        variants: ((p.product_variants as ProductVariantOption[] | null) ?? [])
+        variants: ((p.product_variants as (ProductVariantOption & { sort_order: number })[] | null) ?? [])
           .slice()
-          .sort((a, b) => (a as unknown as { sort_order: number }).sort_order - (b as unknown as { sort_order: number }).sort_order),
-        addons: ((p.product_addons as ProductAddonOption[] | null) ?? [])
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((v) => ({ id: v.id, name: v.name, cost_per_unit: v.cost_per_unit ?? null })),
+        addons: ((p.product_addons as (ProductAddonOption & { sort_order: number })[] | null) ?? [])
           .slice()
-          .sort((a, b) => (a as unknown as { sort_order: number }).sort_order - (b as unknown as { sort_order: number }).sort_order),
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((a) => ({ id: a.id, name: a.name, extra_cost: a.extra_cost ?? null })),
       }))
       setProductCatalog(catalog)
       setProductsForPicker(catalog.map((p) => ({ id: p.id, name: p.name })))
@@ -296,7 +298,17 @@ export function SalesPageClient({
         let cost: number | null = null
         let ingredientLines: { name: string; cost: number }[] = []
 
-        if (saleSource.kind === 'batch') {
+        // Check if a variant with a manual cost is selected — use that first
+        const variantCost = selectedVariantId
+          ? (productCatalog
+              .find((p) => p.id === saleSource.productId)
+              ?.variants.find((v) => v.id === selectedVariantId)
+              ?.cost_per_unit ?? null)
+          : null
+
+        if (variantCost != null) {
+          cost = variantCost * u
+        } else if (saleSource.kind === 'batch') {
           const c = saleSource.costOfGoods
           const prod = saleSource.unitsProduced
           if (c != null && prod > 0) {
@@ -344,6 +356,8 @@ export function SalesPageClient({
     supabase,
     computeAutoCogs,
     batchItemLines,
+    selectedVariantId,
+    productCatalog,
   ])
 
   useEffect(() => {
@@ -553,8 +567,19 @@ export function SalesPageClient({
           })
         }
       } else {
+        // Prefer variant manual cost over WAC lookup
+        const variantManualCost = selectedVariantId
+          ? (productCatalog
+              .find((p) => p.id === productId)
+              ?.variants.find((v) => v.id === selectedVariantId)
+              ?.cost_per_unit ?? null)
+          : null
         const cogsQuick =
-          saleSource.kind === 'quick' ? await computeAutoCogs(productId, units) : null
+          saleSource.kind === 'quick'
+            ? variantManualCost != null
+              ? variantManualCost * units
+              : await computeAutoCogs(productId, units)
+            : null
         const { data: newSaleId, error } = await supabase.rpc('record_sale_with_batch', {
           p_business_id: businessId,
           p_product_id: productId,
@@ -885,7 +910,7 @@ export function SalesPageClient({
                       </span>
                     </div>
                     <div className="flex justify-between items-center gap-3">
-                      <span className="text-gray-600">Revenue</span>
+                      <span className="text-gray-600">Money in</span>
                       <span className="text-lg font-semibold text-green-600 tabular-nums">
                         {formatCurrency(salePreview.revenue, currency)}
                       </span>
@@ -1035,13 +1060,13 @@ export function SalesPageClient({
             </p>
             {salesDetailsOpen && chartData.length > 1 ? (
               <div className="pt-2">
-                <p className="text-xs font-medium text-gray-600 mb-2">Revenue by day (last 14 days in range)</p>
+                <p className="text-xs font-medium text-gray-600 mb-2">Money in per day (last 14 days in range)</p>
                 <div className="rounded-md border border-gray-200 overflow-hidden max-w-md">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-gray-50 text-left text-gray-600">
                         <th className="px-3 py-2 font-medium">Day</th>
-                        <th className="px-3 py-2 font-medium text-right">Revenue</th>
+                        <th className="px-3 py-2 font-medium text-right">Money in</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1077,8 +1102,8 @@ export function SalesPageClient({
               <p className="text-center text-gray-500 py-8">Loading...</p>
             ) : sales.length === 0 ? (
               <p className="text-center text-gray-500 py-8 max-w-md mx-auto leading-relaxed">
-                No sales yet. Tap Log sale when you ring one up. Revenue and profit show on this page and the
-                dashboard.
+                No sales yet. Tap Log sale when you ring one up. Money in and what you kept show on this page
+                and the dashboard.
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -1161,7 +1186,7 @@ export function SalesPageClient({
                               <TableCell colSpan={4} className="p-4 text-sm text-gray-800">
                                 <div className="grid sm:grid-cols-2 gap-3 max-w-lg">
                                   <div>
-                                    <p className="text-xs font-medium text-gray-500 uppercase">Revenue</p>
+                                    <p className="text-xs font-medium text-gray-500 uppercase">Money in</p>
                                     <p className="text-lg font-semibold text-green-700 tabular-nums">
                                       {formatCurrency(sale.revenue, currency)}
                                     </p>

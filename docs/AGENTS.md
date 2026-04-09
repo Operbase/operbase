@@ -498,3 +498,170 @@ Microservices would add distributed transaction complexity for no benefit at thi
 - Don't add business logic to `middleware.ts` beyond auth + onboarding checks
 - Don't use `any` types unless absolutely necessary
 - Don't start Phase 2–5 UI until Phase 1 is stable and has paying users
+
+---
+
+## Feature Implementation Protocol
+
+> **Every feature must go through all four stages before it is considered done.**
+> This is not optional. A feature that passes tests but fails the real-user check is not done.
+
+---
+
+### Stage 1 — Build
+
+- Implement the feature following codebase patterns
+- Write a DB migration if schema changes are needed
+- Add or update tests (`npm test` must pass with zero failures)
+- Keep language simple in all labels, messages, and headings (see Language Rules below)
+
+---
+
+### Stage 2 — First-Time User Simulation
+
+Mentally walk through the feature as a **non-technical small business owner** (think: bakery owner, not developer). Ask yourself at each step:
+
+| Check | Question |
+|-------|----------|
+| **Labels** | Would I understand this without reading a manual? |
+| **Steps** | Is there anything that feels like "work"? |
+| **Errors** | Do error messages tell me *exactly* what to fix? |
+| **Empty states** | Does the empty state tell me what to do next? |
+| **Jargon** | Is any word here something my accountant would say, not me? |
+
+Fix everything that fails this check before moving on.
+
+**Common patterns to watch for:**
+- Words like "variant", "SKU", "COGS", "batch", "units" — replace with "type", "product", "what it cost", "run", "items"
+- Buttons that say "Submit" or "Save" with no context — use "Save product", "Log this sale", "Record what I made"
+- Tables where columns need explanation — every heading must be obvious on its own
+- Flows with more than 3 steps for a daily action — break it up or combine steps
+
+---
+
+### Stage 3 — Real-Day Business Scenario
+
+Simulate a real business day end-to-end. For a bakery this looks like:
+
+1. **Morning:** I baked 8 banana breads → Production → log 8 units
+2. **Afternoon:** I sold 5 → Sales → log 5 at ₦500 each
+3. **End of day:** I gave 1 away → mark as given out in the batch
+4. **Leftover:** 2 remain → shows in Production "Left" column and dashboard
+
+Ask:
+- Does the system match the order I actually do things?
+- Is any step buried or hard to find?
+- Does the profit/loss shown match what I earned in my head?
+- Is the language on the results screen something I would say myself?
+
+Fix anything that breaks the mental model of a real business day.
+
+---
+
+### Stage 4 — AI Query Test *(when AI assistant is live)*
+
+Test these three natural-language queries against the data:
+
+1. "How much flour did we use this week?"
+2. "Did I make profit today?"
+3. "What is left in my pantry?"
+
+Each query must:
+- Return a short, direct answer (one or two sentences)
+- Not show raw numbers without context (say "You made ₦2,400 profit" not "gross_profit: 2400")
+- Fail gracefully if data is missing ("You haven't logged any sales today yet")
+
+The AI must **never** modify data or act without a user confirmation step.
+
+---
+
+## Product System Rules
+
+These rules are enforced in code and must be maintained in every change:
+
+```
+Product → Variant → Add-on
+```
+
+| Rule | Detail |
+|------|--------|
+| **No duplicate names** | `ensure_product` RPC enforces unique `(business_id, name)`. Never bypass it. |
+| **Variants belong to a product** | `product_variants.product_id` is `NOT NULL` — no orphan variants |
+| **Cost lives at variant level** | `product_variants.cost_per_unit` is the source of truth for manual cost. Falls back to batch WAC if null. |
+| **Sales reference variant_id** | When a variant is selected at sale time, store `variant_id` on the sale row. Never store just a name string. |
+| **Add-ons are optional** | Add-ons never block a sale from being logged. They are informational. |
+| **Products are per-business** | All queries must filter by `business_id`. RLS enforces this, but never omit the filter client-side. |
+
+---
+
+## Brand & Language Rules
+
+### Theme
+
+All interactive elements inside `[data-dashboard]` pick up the business brand color automatically via `DashboardBrandCss`. Keep using `bg-amber-600 hover:bg-amber-700` in className — the CSS override in `DashboardBrandCss` maps these to `var(--brand)` and `var(--brand-dark)` at runtime.
+
+When adding new color classes that should follow the brand, add them to `components/dashboard-brand-css.tsx`.
+
+Never use hardcoded hex colors (`#d97706`, `#f59e0b`) anywhere in dashboard components.
+
+### Language (use these, not those)
+
+| ❌ Technical term | ✅ Human phrase |
+|-------------------|-----------------|
+| Revenue | Money in |
+| Profit / Gross profit | You kept |
+| Cost of goods | What it cost |
+| Units | Items |
+| Variant | Type |
+| SKU | — (never use) |
+| Batch | Run |
+| Stock entry | — (never exposed) |
+| Inventory | Stock / what you have |
+| Low stock threshold | Alert me when at or below |
+| Conversion ratio | How many per pack |
+| WAC / weighted average | usual cost |
+| Submit | Save [thing] |
+| Record | Log |
+| Create | Add |
+
+Apply consistently in:
+- Table headings and column names
+- Form labels
+- Button text
+- Toast messages
+- Empty states
+- Error messages
+
+### Tone
+
+- Write in second person ("You kept", "What you made")
+- Direct and short — no filler words
+- Never blame the user in error messages
+- Toast success = "Saved!", "Done." — not "Operation completed successfully"
+- Toast error = tell them exactly what to fix in plain language
+
+---
+
+## Getting started (migrations to run in order)
+
+```
+packages/supabase/migrations/20260403000000_init_schema.sql
+packages/supabase/migrations/20260403000001_create_business_rpc.sql
+packages/supabase/migrations/20260403000002_bakery_business_logic.sql
+packages/supabase/migrations/20260403000003_future_ready_scaffold.sql
+packages/supabase/migrations/20260403000004_analytics_and_modules.sql
+packages/supabase/migrations/20260403000005_perf_concurrency.sql
+packages/supabase/migrations/20260403000006_dashboard_rpcs.sql
+packages/supabase/migrations/20260403000007_rls_optimization.sql
+packages/supabase/migrations/20260403000008_fix_metrics_and_batch_items.sql
+packages/supabase/migrations/20260403000009_sales_product_name_dashboard_period.sql
+packages/supabase/migrations/20260403000010_weighted_average_cost.sql
+packages/supabase/migrations/20260403000011_per_product_costing.sql
+packages/supabase/migrations/20260403000012_purchase_lots_fifo.sql
+packages/supabase/migrations/20260403000013_production_giveaway_units.sql
+packages/supabase/migrations/20260403000014_batch_dispositions.sql
+packages/supabase/migrations/20260403000015_business_timezone_default.sql
+packages/supabase/migrations/20260409000016_product_variants_addons.sql
+packages/supabase/migrations/20260409000017_variant_cost_per_unit.sql
+packages/supabase/seed/units.sql
+```

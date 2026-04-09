@@ -679,8 +679,8 @@ export function StockPageClient({
                         <TableRow>
                           <TableHead>Item</TableHead>
                           <TableHead>On hand</TableHead>
-                          <TableHead>You count in</TableHead>
-                          <TableHead className="text-right tabular-nums">Cost per recipe unit</TableHead>
+                          <TableHead>Your unit</TableHead>
+                          <TableHead className="text-right tabular-nums">Price per unit</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
