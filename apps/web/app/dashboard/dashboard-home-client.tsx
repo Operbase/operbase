@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { GettingStartedHelper } from '@/components/getting-started-helper'
 import { BusinessAssistant } from '@/components/business-assistant'
+import { WhatHappened } from '@/components/what-happened'
 import { AlertCircle, ChefHat, Package, ShoppingBag } from 'lucide-react'
 import { useBusinessContext } from '@/providers/business-provider'
 import { formatCurrency } from '@/lib/format-currency'
@@ -132,9 +133,12 @@ export function DashboardHomeClient({
           {businessGreetingLabel(timezone)}, {userName}
         </h1>
         <p className="text-gray-500 mt-1">
-          Here is <span className="font-medium text-gray-700">{businessName ?? 'your shop'}</span> at a glance.
+          Here&rsquo;s how <span className="font-medium text-gray-700">{businessName ?? 'your shop'}</span> is doing today.
         </p>
       </div>
+
+      {/* What happened today? */}
+      <WhatHappened />
 
       {/* 1 — Today's result */}
       {neverHadSale ? (

@@ -21,6 +21,7 @@ import { createClient } from '@/lib/supabase/client'
 import { businessInitials } from '@/lib/brand/business-initials'
 import { DashboardBrandCss } from '@/components/dashboard-brand-css'
 import { GlobalQuickLog } from '@/components/global-quick-log'
+import { WhatHappened } from '@/components/what-happened'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -305,8 +306,9 @@ function DashboardLayoutInner({ children, userEmail, userName }: DashboardLayout
           </DropdownMenu>
         </header>
 
-        <main className="flex-1 overflow-y-auto">
-          <div className="p-4 md:p-6 lg:p-8">{children}</div>
+        <main className="flex-1 overflow-y-auto flex flex-col">
+          <WhatHappened mode="bar" />
+          <div className="flex-1 p-4 md:p-6 lg:p-8">{children}</div>
         </main>
       </div>
 

@@ -4,6 +4,30 @@ High-level record of behavior changes that affect the product or database. **New
 
 ---
 
+## 2026-04-09 — "What happened today?" quick-log system
+
+### What changed
+
+- **`WhatHappened` component** (`components/what-happened.tsx`): three-flow quick-log accessible from every dashboard page. Flows: "I bought", "I made", "I sold".
+- **Mode support**: `mode="cards"` on the home page (3 large action cards); `mode="bar"` injected into the dashboard layout bar (visible on all non-home pages). Bar mode hides itself on `/dashboard` to avoid duplication.
+- **"I made" multi-step flow**: replaced hidden checkbox with an explicit step 2 screen — "{qty} {name} made! Did you sell any right away?" — two option cards (Yes I sold some / No, not yet). Removes cognitive load from the initial form.
+- **"I bought" stock context**: after logging a purchase, queries `purchase_lots` to show total remaining stock for the item and a "Ready for your next production run." nudge.
+- **Sale profit feedback**: surfaces `gross_profit` from the sales row after each sale. Shows the number large with green/orange color and "profit" / "loss" label.
+- **localStorage profit memory** (`wh_profit_{businessId}`): tracks `{ last, best }` profit per business. After each profitable sale shows "🔥 Your best sale yet!" or "Better than your last sale. Keep it up! 🙌" before falling back to a generic suggestion.
+- **Soft assistant voice**: one contextual suggestion line per action (stock ready for production / sell while fresh / consider making more).
+- **Animations**: `wh-pop` (spring checkmark) and `wh-fade-up` (staggered reveals) keyframes in `globals.css`. Respects `prefers-reduced-motion`.
+- **Brand styling**: gradient dialog, brand accent line, `wh-input` focus glow using `var(--brand)`, `wh-action-card` hover-lift effect.
+
+### Why
+
+Owners need to log daily activity quickly without navigating to the full Stock/Production/Sales pages. This surfaces the three most common daily actions — buying ingredients, making a batch, selling — in one place, with emotional feedback that reinforces good habits.
+
+### RPCs used
+
+`add_purchase_lot`, `create_production_batch`, `record_sale_with_batch`, `ensure_product`
+
+---
+
 ## 2026-04-09 — Insights page, tooltips, new count units, crate fix
 
 ### What changed

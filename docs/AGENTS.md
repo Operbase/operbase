@@ -96,6 +96,13 @@ cd apps/web && npm install
 #    packages/supabase/migrations/20260403000011_per_product_costing.sql
 #    packages/supabase/migrations/20260403000012_purchase_lots_fifo.sql
 #    packages/supabase/migrations/20260403000013_production_giveaway_units.sql
+#    packages/supabase/migrations/20260403000014_batch_dispositions.sql
+#    packages/supabase/migrations/20260403000015_business_timezone_default.sql
+#    packages/supabase/migrations/20260409000016_product_variants_addons.sql
+#    packages/supabase/migrations/20260409000017_variant_cost_per_unit.sql
+#    packages/supabase/migrations/20260409000018_enforce_product_id.sql
+#    packages/supabase/migrations/20260409000019_variant_on_rpcs.sql
+#    packages/supabase/migrations/20260409000020_more_count_units.sql
 #    packages/supabase/seed/units.sql
 
 # 3. Start dev server
@@ -140,10 +147,15 @@ stock_levels            ← VIEW: SUM(quantity) per item
 products                ← finished goods (MVP: one row per name per business; created via ensure_product RPC)
   id, business_id, name, unit_id?, sale_price, is_active
 
+purchase_lots           ← FIFO purchase tracking (add_purchase_lot RPC)
+  id, business_id, item_id, purchase_qty, quantity_remaining, total_cost_paid, note, created_at
+
 batches                 ← production runs
-  id, business_id, product_id (required for new RPC-created batches), units_produced, units_remaining,
-  cost_of_goods?, notes, produced_at
-  Create with inventory: RPC create_production_batch (calls for p_product_id); delete with restore: delete_production_batch
+  id, business_id, product_id (required for new RPC-created batches), variant_id?,
+  units_produced, units_remaining, units_sold_from_batch, units_spoiled,
+  units_given_out_extra, units_not_sold_loss, cost_of_goods?, notes, produced_at
+  Create with inventory: RPC create_production_batch; delete with restore: delete_production_batch
+  Dispose without sale: dispose_batch_units (kind: spoiled | given_out | not_sold)
 
 batch_items             ← ingredients consumed per batch
   id, batch_id, item_id, quantity, unit_id, cost
@@ -287,6 +299,12 @@ lib/
                           Fails silently. Fire AFTER a successful write, never before.
   bakery/cost.ts          costPerUsageUnit, usageQuantityFromPurchaseQty, batch/sale COGS helpers
   bakery/simple-presets.ts COMMON_INGREDIENTS, COMMON_BAKES, COMMON_BATCH_SIZES, etc.
+  business-time.ts        formatCalendarDateInTimeZone(date, tz) → "YYYY-MM-DD" string in the
+                          business's local timezone. businessCalendarDateToIsoUtc(date, tz) → ISO
+                          timestamptz suitable for Supabase. Use these for all "today" logic.
+  friendly-dates.ts       Human-readable date display helpers (e.g. "Today", "Yesterday", "Apr 8").
+  dashboard/profit-tone.ts profitTone(profit) → { color, label, emoji } — maps a profit number to
+                          a UI sentiment (green/amber/red). Used for consistent emotional feedback.
   onboarding/draft-storage.ts  localStorage helpers for onboarding wizard draft (see "Onboarding draft persistence")
   utils.ts                cn() — Tailwind class merge utility
   dashboard/
@@ -327,8 +345,16 @@ app/
 
 components/
   dashboard-layout.tsx  Sidebar + mobile header; useBusinessContext(); injects CSS vars
-                        (--brand, …) on [data-dashboard]. Does **not** wrap BusinessProvider
+                        (--brand, …) on [data-dashboard]. Renders `<WhatHappened mode="bar" />`
+                        in bar mode on all non-home dashboard pages. Does **not** wrap BusinessProvider
                         (the dashboard `layout.tsx` does).
+  what-happened.tsx     "What happened today?" quick-log system. Three flows: "I bought", "I made",
+                        "I sold". mode="cards" (home page) or mode="bar" (all other pages via layout).
+                        Bar mode hides itself on `/dashboard` to avoid duplication.
+                        Reads/writes localStorage `wh_profit_{businessId}` to track last/best profit
+                        and show comparison lines. Uses RPCs: add_purchase_lot,
+                        create_production_batch, record_sale_with_batch, ensure_product.
+                        CSS animations: wh-pop (checkmark), wh-fade-up (staggered reveals) in globals.css.
   landing/              Marketing home: `landing-page.tsx`, `landing-nav.tsx`, `landing-hero.tsx`,
                         `landing-sections.tsx`, `landing-footer.tsx`, `animate-in.tsx`, `content.ts`
   shared/               `navbar.tsx`, `footer.tsx`, `container.tsx`, `section.tsx`
@@ -438,8 +464,12 @@ import { mockSupabaseClient, resetSupabaseMocks } from '@/__tests__/helpers/supa
 |----------|---------|
 | `create_business_with_owner(p_name, p_subdomain, p_logo_url, p_brand_color, p_business_type, p_currency DEFAULT 'USD')` | Atomically inserts `businesses`, `user_businesses`, and `business_settings` (with currency) in one transaction. 6th param is optional. Call from onboarding. |
 | `ensure_product(p_business_id, p_name)` | Returns `products.id`, inserting a row for trimmed `p_name` if needed (max 200 chars). Used before batch create and when saving sales. |
-| `create_production_batch(p_business_id, p_units_produced, p_produced_at, p_display_name, p_extra_notes, p_lines, p_product_id)` | Validates stock, deducts `stock_entries`, writes `batch_items`, sets `batches.product_id` and `cost_of_goods`. |
+| `create_production_batch(p_business_id, p_units_produced, p_produced_at, p_display_name, p_extra_notes, p_lines, p_product_id, p_variant_id DEFAULT NULL)` | Validates stock, deducts `stock_entries`, writes `batch_items`, sets `batches.product_id` and `cost_of_goods`. |
 | `delete_production_batch(p_batch_id)` | Reverses `stock_entries` for each ingredient line, then deletes the batch. |
+| `add_purchase_lot(p_business_id, p_item_id, p_purchase_qty, p_total_cost_paid, p_note)` | Records a new purchase lot in `purchase_lots` (FIFO stock tracking). Called by "I bought" in WhatHappened and the Stock page restock flow. |
+| `record_sale_with_batch(p_business_id, p_product_id, p_product_name, p_units_sold, p_unit_price, p_sold_at, p_customer_id, p_batch_id, p_cogs_if_no_batch, p_variant_id DEFAULT NULL)` | Inserts a sale row and decrements `batches.units_remaining` + increments `units_sold_from_batch` if a batch is provided. Returns the new `sales.id`. |
+| `dispose_batch_units(p_batch_id, p_quantity, p_kind)` | Removes units from a batch without a sale. `p_kind`: `spoiled`, `given_out`, or `not_sold`. Decrements `units_remaining` and updates the matching disposition column. |
+| `delete_sale_restores_batch(p_sale_id)` | Undoes a sale — restores `units_remaining` on the linked batch, then deletes the sale row. |
 | `monthly_spend_by_item(p_business_id, p_year, p_month)` | Returns per-item purchase spend for a given month (used on dashboard chart). |
 | `dashboard_metrics(p_business_id)` | Single-call revenue, COGS, gross profit, sales/batch/item counts (dashboard home). |
 | `low_stock_alerts(p_business_id, p_limit)` | Returns low/out-of-stock items for alerts (dashboard home). |
@@ -663,5 +693,8 @@ packages/supabase/migrations/20260403000014_batch_dispositions.sql
 packages/supabase/migrations/20260403000015_business_timezone_default.sql
 packages/supabase/migrations/20260409000016_product_variants_addons.sql
 packages/supabase/migrations/20260409000017_variant_cost_per_unit.sql
+packages/supabase/migrations/20260409000018_enforce_product_id.sql
+packages/supabase/migrations/20260409000019_variant_on_rpcs.sql
+packages/supabase/migrations/20260409000020_more_count_units.sql
 packages/supabase/seed/units.sql
 ```
