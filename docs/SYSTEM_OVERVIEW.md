@@ -122,7 +122,28 @@ Operbase helps small business owners (starting with bakeries) answer three quest
 
 ---
 
-### 7. Global Quick Log
+### 7. "What Happened Today?" — Inline Quick Log
+
+**What it is**: A zero-navigation daily log built into the dashboard itself, accessible in two modes:
+- **Cards mode** (`mode="cards"`): three large action cards on the home page — "I bought", "I made", "I sold"
+- **Bar mode** (`mode="bar"`): a compact strip injected at the top of every non-home dashboard page via `dashboard-layout.tsx`
+
+**How it works**:
+- Tap a flow → dialog opens. Flows use plain-English prompts ("What did you buy?", "How many did you make?").
+- **I bought**: records a purchase lot, then queries total remaining stock for the item and shows "You now have X in stock" + a nudge toward the next production run.
+- **I made**: two-step flow — step 1 enters product + qty, step 2 asks "Did you sell any right away?" with two option cards (Yes → step 3 for price/qty; No → saves directly). Skips the confusing checkbox.
+- **I sold**: logs a sale, surfaces gross profit immediately.
+- **Result screen**: animated checkmark + large profit/revenue number with emotional tone (green profit, orange loss). Staggered fade-up reveals.
+- **Profit memory**: reads `wh_profit_{businessId}` from localStorage (`{ last, best }`). After each profitable sale, shows "🔥 Your best sale yet!" or "Better than your last sale" as appropriate, then updates the stored values.
+- **Assistant voice**: one suggestion per action — stock ready for production, sell while fresh, consider making more.
+
+**Key code file**: `apps/web/components/what-happened.tsx`
+
+**RPCs used**: `add_purchase_lot`, `create_production_batch`, `record_sale_with_batch`, `ensure_product`
+
+---
+
+### 8. Global Quick Log
 
 **What it is**: A floating **+** button (bottom-right) that opens a modal for logging anything quickly without navigating away from the current page.
 
@@ -191,9 +212,10 @@ apps/web/
       page.tsx                     Insights server component (loads this_month by default)
       insights-page-client.tsx     Insights UI: period selector, KPIs, insight cards, per-product
   components/
+    what-happened.tsx              "What happened today?" inline quick-log (cards + bar mode)
     global-quick-log.tsx           Floating + FAB: I made / I sold / I bought / I used / I gave away
     dashboard-brand-css.tsx        CSS variable injection for theming
-    dashboard-layout.tsx           Shell layout with sidebar nav
+    dashboard-layout.tsx           Shell layout with sidebar nav; renders WhatHappened bar
     business-assistant.tsx         AI assistant widget
   lib/
     assistant/

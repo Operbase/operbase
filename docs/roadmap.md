@@ -79,6 +79,7 @@ The strategy is not to build a dedicated vertical per business type. The core en
 - Product catalog with variants, add-ons, sale price, avg cost, profit/unit, and margin %
 - Insights page: revenue, production cost, gross profit, margin, smart insight cards, per-product breakdown
 - Global Quick Log (floating + FAB): I made, I sold, I bought, I used, I gave away
+- **"What happened today?" bar + cards**: compact inline quick-log on every dashboard page (bar) and the home page (3 action cards). Three flows: I bought, I made, I sold. Multi-step "I made" flow with an explicit "did you sell any?" screen. Shows real profit feedback with large number + sentiment color. Remembers last/best profit per business in localStorage and surfaces comparison lines ("Your best sale yet!"). Soft assistant voice after every action.
 - Dashboard: today's profit, at-risk unsold items, quick actions
 - Brand theming, multi-tenant RLS, business timezone support
 - Rule-based AI assistant (no external API)
