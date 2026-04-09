@@ -25,6 +25,20 @@ import {
   ArrowRight,
   Loader2,
 } from 'lucide-react'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
+
+function InfoTip({ text }: { text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex items-center cursor-help ml-0.5 align-middle">
+          <Info size={11} className="text-gray-400" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-[220px] text-center leading-snug">{text}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 interface Props {
   initialData: InsightsData
@@ -88,16 +102,20 @@ function KpiCard({
   sub,
   positive,
   dimmed,
+  tip,
 }: {
   label: string
   value: string
   sub?: string
   positive?: boolean
   dimmed?: boolean
+  tip?: string
 }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 flex flex-col gap-1">
-      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
+      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+        {label}{tip && <InfoTip text={tip} />}
+      </p>
       <p
         className={`text-2xl font-bold leading-tight ${
           dimmed
@@ -261,7 +279,9 @@ function ProductRow({
 
           {/* Avg production cost */}
           <div>
-            <p className="text-xs text-gray-400 mb-0.5">Avg cost/unit</p>
+            <p className="text-xs text-gray-400 mb-0.5">
+              Avg cost/unit<InfoTip text="Total ingredient cost across all runs ÷ total units produced" />
+            </p>
             {p.avgCostPerUnit !== null ? (
               <p className="text-sm font-semibold text-gray-900">{fmt.money(p.avgCostPerUnit)}</p>
             ) : p.hasRuns && p.noIngredients ? (
@@ -277,7 +297,9 @@ function ProductRow({
 
           {/* Profit per unit */}
           <div>
-            <p className="text-xs text-gray-400 mb-0.5">Profit/unit</p>
+            <p className="text-xs text-gray-400 mb-0.5">
+              Profit/unit<InfoTip text="Sale price − average production cost per unit" />
+            </p>
             {profitPerUnit !== null ? (
               <p className={`text-sm font-semibold ${profitPerUnit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                 {profitPerUnit >= 0 ? '' : '-'}{fmt.money(profitPerUnit)}
@@ -428,12 +450,14 @@ export function InsightsPageClient({ initialData, businessId, timezone, currency
                 value={overview.totalRevenue > 0 ? fmt.money(overview.totalRevenue) : '—'}
                 sub={overview.totalUnitsSold > 0 ? `${fmt.num(overview.totalUnitsSold)} units sold` : undefined}
                 dimmed={overview.totalRevenue === 0}
+                tip="Total money received from sales in this period"
               />
               <KpiCard
                 label="Production cost"
                 value={overview.totalProductionCost > 0 ? fmt.money(overview.totalProductionCost) : '—'}
                 sub={overview.totalProduced > 0 ? `${fmt.num(overview.totalProduced)} units made` : undefined}
                 dimmed={overview.totalProductionCost === 0}
+                tip="Total ingredient cost across all production runs in this period"
               />
               <KpiCard
                 label="Gross profit"
@@ -441,6 +465,7 @@ export function InsightsPageClient({ initialData, businessId, timezone, currency
                 sub={overview.hasCostGap ? 'Some COGS missing' : undefined}
                 positive={overview.totalRevenue > 0 ? overview.totalProfit >= 0 : undefined}
                 dimmed={overview.totalRevenue === 0}
+                tip="Revenue − cost of the units actually sold (not all production cost)"
               />
               <KpiCard
                 label="Margin"
@@ -456,6 +481,7 @@ export function InsightsPageClient({ initialData, businessId, timezone, currency
                     : undefined
                 }
                 dimmed={overview.marginPct === null}
+                tip="(Gross profit ÷ Revenue) × 100. How much of every sale you actually keep."
               />
             </div>
 

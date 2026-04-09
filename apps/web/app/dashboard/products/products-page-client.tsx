@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Trash2, Pencil, X, ChevronRight, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { Plus, Trash2, Pencil, X, ChevronRight, TrendingUp, TrendingDown, Minus, Info } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,11 +13,25 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useBusinessContext } from '@/providers/business-provider'
 import { formatCurrency } from '@/lib/format-currency'
 import { friendlyError } from '@/lib/errors'
+
+function InfoTip({ text }: { text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex items-center cursor-help ml-0.5 align-middle">
+          <Info size={11} className="text-gray-400" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-[220px] text-center leading-snug">{text}</TooltipContent>
+    </Tooltip>
+  )
+}
 import type { ProductCatalogRow, ProductVariantRow } from '@/lib/dashboard/products-data'
 
 type WizardStep = 1 | 2 | 3
@@ -334,9 +348,17 @@ export function ProductsPageClient({
                   {/* ── Margin row (no variants) ── */}
                   {product.variants.length === 0 && product.avgCostPerUnit != null && (
                     <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
-                      <span>Avg production cost: <span className="font-semibold text-gray-700">{formatCurrency(product.avgCostPerUnit, currency)}</span></span>
+                      <span>
+                        Avg production cost
+                        <InfoTip text="Total ingredient cost across all runs ÷ total units produced" />
+                        : <span className="font-semibold text-gray-700">{formatCurrency(product.avgCostPerUnit, currency)}</span>
+                      </span>
                       {product.sale_price > 0 && (
-                        <span>Profit per unit: <span className="font-semibold text-gray-700">{formatCurrency(product.sale_price - product.avgCostPerUnit, currency)}</span></span>
+                        <span>
+                          Profit per unit
+                          <InfoTip text="Sale price − average production cost per unit" />
+                          : <span className="font-semibold text-gray-700">{formatCurrency(product.sale_price - product.avgCostPerUnit, currency)}</span>
+                        </span>
                       )}
                       <span className="text-gray-400">from {product.runCount} run{product.runCount !== 1 ? 's' : ''}</span>
                     </div>
@@ -357,9 +379,15 @@ export function ProductsPageClient({
                           <span className="text-sm font-medium text-gray-700 min-w-[80px]">{v.name}</span>
                           {v.avgCostPerUnit != null ? (
                             <>
-                              <span className="text-xs text-gray-500">Cost: <span className="font-semibold text-gray-700">{formatCurrency(v.avgCostPerUnit, currency)}</span></span>
+                              <span className="text-xs text-gray-500">
+                                Avg cost<InfoTip text="Total ingredient cost for this variant ÷ units produced across all its runs" />
+                                : <span className="font-semibold text-gray-700">{formatCurrency(v.avgCostPerUnit, currency)}</span>
+                              </span>
                               {product.sale_price > 0 && (
-                                <span className="text-xs text-gray-500">Profit: <span className="font-semibold text-gray-700">{formatCurrency(product.sale_price - v.avgCostPerUnit, currency)}</span></span>
+                                <span className="text-xs text-gray-500">
+                                  Profit<InfoTip text="Sale price − average production cost for this variant" />
+                                  : <span className="font-semibold text-gray-700">{formatCurrency(product.sale_price - v.avgCostPerUnit, currency)}</span>
+                                </span>
                               )}
                               <MarginPill salePrice={product.sale_price} cost={v.avgCostPerUnit} />
                               <span className="text-xs text-gray-400">{v.runCount} run{v.runCount !== 1 ? 's' : ''}</span>
