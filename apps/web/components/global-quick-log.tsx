@@ -23,7 +23,7 @@ type Tab = 'made' | 'sold' | 'bought' | 'used' | 'gave'
 interface QuickLogEvent { tab?: Tab; productName?: string }
 interface Product     { id: string; name: string }
 interface Variant     { id: string; name: string }
-interface StockItem   { id: string; name: string; purchaseUnitId: string | null; purchaseUnitName: string; conversionRatio: number; usageUnitName: string }
+interface StockItem   { id: string; name: string; purchaseUnitId: string | null; purchaseUnitName: string; usageUnitId: string | null; usageUnitName: string; conversionRatio: number }
 interface UnitOption  { id: string; name: string }
 interface BatchOption { id: string; label: string; unitsRemaining: number; producedAt: string }
 
@@ -50,7 +50,8 @@ const D_BOUGHT = {
   itemName: '', itemId: null as string | null,
   purchaseUnitId: null as string | null, purchaseUnitName: '',
   isNew: false, qty: '', totalCost: '',
-  entryInUsageUnit: false, // when true, user enters in usage units (e.g. pieces), we convert to purchase units for the RPC
+  entryUnitId: null as string | null,   // which unit the user is entering qty in; null = purchase unit
+  entryUnitName: '',
 }
 const D_USED = {
   itemName: '', itemId: null as string | null, usageUnitName: '',
@@ -115,8 +116,9 @@ export function GlobalQuickLog() {
             name: i.name as string,
             purchaseUnitId: (i.purchase_unit_id as string | null) ?? null,
             purchaseUnitName: pu?.name ?? '',
-            conversionRatio: Number(i.conversion_ratio ?? 1),
+            usageUnitId: (uu?.id as string | null) ?? null,
             usageUnitName: uu?.name ?? pu?.name ?? '',
+            conversionRatio: Number(i.conversion_ratio ?? 1),
           }
         })
       )
@@ -284,7 +286,8 @@ export function GlobalQuickLog() {
         purchaseUnitId: item.purchaseUnitId,
         purchaseUnitName: item.purchaseUnitName,
         isNew: false,
-        entryInUsageUnit: false,
+        entryUnitId: item.purchaseUnitId,
+        entryUnitName: item.purchaseUnitName,
       }))
     }
   }
@@ -295,7 +298,7 @@ export function GlobalQuickLog() {
       setBoughtForm(f => ({
         ...f, itemName: name, itemId: match.id,
         purchaseUnitId: match.purchaseUnitId, purchaseUnitName: match.purchaseUnitName,
-        isNew: false,
+        isNew: false, entryUnitId: match.purchaseUnitId, entryUnitName: match.purchaseUnitName,
       }))
     } else {
       setBoughtForm(f => ({
@@ -432,15 +435,17 @@ export function GlobalQuickLog() {
     if (boughtForm.isNew && !boughtForm.purchaseUnitId) { toast.error('Select a unit'); return }
     const totalCost = parseFloat(boughtForm.totalCost) || 0
 
-    // If user entered in usage units (e.g. pieces), convert to purchase units for the RPC
+    // Convert entered qty to purchase units for the RPC
     const matchedItem = boughtForm.itemId ? stockItems.find(i => i.id === boughtForm.itemId) : null
     const convRatio = matchedItem?.conversionRatio ?? 1
-    const purchaseQty = boughtForm.entryInUsageUnit && convRatio > 1
-      ? enteredQty / convRatio
-      : enteredQty
-    const displayUnit = boughtForm.entryInUsageUnit
-      ? (matchedItem?.usageUnitName ?? '')
-      : boughtForm.purchaseUnitName
+    const entryUnitId = boughtForm.entryUnitId ?? boughtForm.purchaseUnitId
+    // If user entered in usage units (≠ purchase unit) and a conversion ratio exists, divide
+    const enteredInUsageUnit = !!matchedItem?.usageUnitId
+      && entryUnitId === matchedItem.usageUnitId
+      && entryUnitId !== boughtForm.purchaseUnitId
+      && convRatio > 1
+    const purchaseQty = enteredInUsageUnit ? enteredQty / convRatio : enteredQty
+    const displayUnit = boughtForm.entryUnitName || boughtForm.purchaseUnitName
 
     setIsSubmitting(true)
     try {
@@ -832,33 +837,61 @@ export function GlobalQuickLog() {
                   className="min-h-11"
                 />
 
-                {/* Existing item: unit toggle if purchase ≠ usage unit */}
-                {!boughtForm.isNew && boughtForm.purchaseUnitName && (() => {
-                  const matchedItem = boughtForm.itemId ? stockItems.find(i => i.id === boughtForm.itemId) : null
+                {/* Existing item: free unit selector */}
+                {!boughtForm.isNew && boughtForm.itemId && (() => {
+                  const matchedItem = stockItems.find(i => i.id === boughtForm.itemId)
                   const ratio = matchedItem?.conversionRatio ?? 1
                   const usageUnit = matchedItem?.usageUnitName ?? ''
-                  const hasTwoUnits = ratio > 1 && !!usageUnit && usageUnit !== boughtForm.purchaseUnitName
+                  const usageUnitId = matchedItem?.usageUnitId ?? null
+                  const currentUnit = boughtForm.entryUnitId ?? boughtForm.purchaseUnitId
+                  const qty = parseFloat(boughtForm.qty) || 0
+                  // Live conversion hint
+                  const showHint = ratio > 1 && !!usageUnit && usageUnit !== boughtForm.purchaseUnitName
+                  const hintText = (() => {
+                    if (!showHint || qty === 0) return null
+                    if (currentUnit === usageUnitId) {
+                      return `${qty} ${usageUnit} = ${(qty / ratio).toFixed(3).replace(/\.?0+$/, '')} ${boughtForm.purchaseUnitName} stored`
+                    }
+                    return `${qty} ${boughtForm.purchaseUnitName} = ${qty * ratio} ${usageUnit} in stock`
+                  })()
                   return (
-                    <div>
-                      <p className="text-xs font-medium text-gray-500 mb-1.5">Enter quantity in</p>
-                      <div className="flex gap-2">
-                        <button type="button"
-                          className="flex-1 px-3 py-2 rounded-lg text-sm border transition-colors"
-                          style={activeChipStyle(!boughtForm.entryInUsageUnit)}
-                          onClick={() => setBoughtForm(f => ({ ...f, entryInUsageUnit: false }))}>
-                          {boughtForm.purchaseUnitName}
-                          {hasTwoUnits && <span className="block text-xs opacity-70">as purchased</span>}
-                        </button>
-                        {hasTwoUnits && (
-                          <button type="button"
-                            className="flex-1 px-3 py-2 rounded-lg text-sm border transition-colors"
-                            style={activeChipStyle(boughtForm.entryInUsageUnit)}
-                            onClick={() => setBoughtForm(f => ({ ...f, entryInUsageUnit: true }))}>
-                            {usageUnit}
-                            <span className="block text-xs opacity-70">individual</span>
-                          </button>
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-gray-500">I am entering quantity in</label>
+                      <select
+                        value={currentUnit ?? ''}
+                        onChange={e => {
+                          const u = allUnits.find(u => u.id === e.target.value)
+                          setBoughtForm(f => ({
+                            ...f,
+                            entryUnitId: e.target.value || null,
+                            entryUnitName: u?.name ?? '',
+                          }))
+                        }}
+                        className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm min-h-11 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                      >
+                        {/* Purchase unit always first */}
+                        {boughtForm.purchaseUnitId && (
+                          <option value={boughtForm.purchaseUnitId}>
+                            {boughtForm.purchaseUnitName}{ratio > 1 ? ' (as bought)' : ''}
+                          </option>
                         )}
-                      </div>
+                        {/* Usage unit if different */}
+                        {usageUnitId && usageUnitId !== boughtForm.purchaseUnitId && (
+                          <option value={usageUnitId}>
+                            {usageUnit} (individual)
+                          </option>
+                        )}
+                        {/* All other units */}
+                        {allUnits
+                          .filter(u => u.id !== boughtForm.purchaseUnitId && u.id !== usageUnitId)
+                          .map(u => <option key={u.id} value={u.id}>{u.name}</option>)
+                        }
+                      </select>
+                      {hintText && (
+                        <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-100">
+                          {hintText}
+                        </p>
+                      )}
                     </div>
                   )
                 })()}
@@ -891,13 +924,11 @@ export function GlobalQuickLog() {
 
                 <Input
                   type="number" inputMode="decimal"
-                  placeholder={(() => {
-                    if (boughtForm.entryInUsageUnit) {
-                      const m = boughtForm.itemId ? stockItems.find(i => i.id === boughtForm.itemId) : null
-                      return `Quantity (${m?.usageUnitName ?? 'units'})`
-                    }
-                    return boughtForm.purchaseUnitName ? `Quantity (${boughtForm.purchaseUnitName})` : 'Quantity bought'
-                  })()}
+                  placeholder={boughtForm.entryUnitName
+                    ? `Quantity (${boughtForm.entryUnitName})`
+                    : boughtForm.purchaseUnitName
+                      ? `Quantity (${boughtForm.purchaseUnitName})`
+                      : 'Quantity bought'}
                   value={boughtForm.qty}
                   onChange={e => setBoughtForm(f => ({ ...f, qty: e.target.value }))}
                   className="min-h-11"
