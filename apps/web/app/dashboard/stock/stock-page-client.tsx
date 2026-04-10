@@ -627,10 +627,10 @@ export function StockPageClient({
                 {!editingItem && (
                   <div>
                     <Label htmlFor="openingQty">
-                      How many did you buy?
+                      How many {purchaseUnitName || 'units'} did you buy?
                     </Label>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      In {purchaseUnitName || 'purchase units'} — this sets your starting stock
+                      This sets your starting stock
                     </p>
                     <WholeNumberChips
                       values={[1, 2, 5, 10]}
