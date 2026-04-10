@@ -1018,7 +1018,7 @@ export function StockPageClient({
               </div>
               <div>
                 <Label htmlFor="restockQty" className="text-base">
-                  Or type amount
+                  How many {restockItem?.purchase_unit_name ?? 'units'} did you buy?
                 </Label>
                 <Input
                   id="restockQty"
@@ -1033,9 +1033,16 @@ export function StockPageClient({
                 />
               </div>
               <div>
-                <Label htmlFor="restockCost" className="text-base">
-                  Price per {restockItem?.purchase_unit_name ?? 'unit'}
-                </Label>
+                {(() => {
+                  const pq = parseFloat(restockPurchaseQty)
+                  const unit = restockItem?.purchase_unit_name ?? 'unit'
+                  const qtyStr = pq > 0 ? `${pq} ${unit}` : unit
+                  return (
+                    <Label htmlFor="restockCost" className="text-base">
+                      How much did you pay for {qtyStr}?
+                    </Label>
+                  )
+                })()}
                 <p className="text-xs text-gray-500 mt-0.5">
                   Update if the price has changed since last time
                 </p>
