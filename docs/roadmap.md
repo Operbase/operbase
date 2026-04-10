@@ -37,23 +37,23 @@ The long-term possibility — not a guarantee, but a direction worth building to
 
 **Future Feature Layers**
 
-- Ecommerce  
-- Payment Integrations  
-- Invoicing + Document Printing  
-- Globalisation (tax, multi-location, multi-country)  
-- AI Insights  
-- **Operbase MCP** — a Model Context Protocol server exposing safe, business-scoped tools so **any MCP-capable client** (Cursor, Claude Desktop, custom apps) can query and act on behalf of an authenticated business *(see Phase 7)*  
-- **Agents** — autonomous or semi-autonomous workflows on top of the same capabilities (often MCP + server-side orchestration) *(see Phase 7)*  
-- **In-app AI chatbot** — guided Q&A and actions inside the web app for owners who do not use external MCP clients *(see Phase 7)*  
-- Platform Billing  
-- Customer Acquisition Network *(long-term vision — see Phase 9)*  
-- **CRM integrations** *(exploratory)* — sync customers/leads with external CRMs when a clear operator use case emerges; not committed *(see “Integrations (exploratory)” below)*  
+- Ecommerce
+- Payment Integrations
+- Invoicing + Document Printing
+- Globalisation (tax, multi-location, multi-country)
+- **AI Assistant (model-agnostic)** — starts with Groq free tier in Phase 1.6; upgrades to Claude Haiku/Sonnet for paid plans in Phase 7; multi-model router keeps provider switching a config change, not a rewrite *(see Phases 1.6 & 7)*
+- **Operbase MCP** — a Model Context Protocol server exposing safe, business-scoped tools so **any MCP-capable client** (Cursor, Claude Desktop, custom apps) can query and act on behalf of an authenticated business *(see Phase 7)*
+- **Agents** — autonomous or semi-autonomous workflows on top of the same capabilities (often MCP + server-side orchestration) *(see Phase 7)*
+- **Mobile (PWA)** — installable progressive web app; mobile-optimised surface focused on quick log, today's profit, and alerts *(see Phase 3.6)*
+- Platform Billing
+- Customer Acquisition Network *(long-term vision — see Phase 9)*
+- **CRM integrations** *(exploratory)* — sync customers/leads with external CRMs when a clear operator use case emerges; not committed *(see “Integrations (exploratory)” below)*
 
 **Solution Layer (Entry Points)**
 
-- Bakery (V1) ✅  
-- Generic fallback — any business type (Phase 3.5)  
-- Retail / Services / Restaurant — vertical-specific language + presets on top of generic (Phase 3.5+)  
+- Bakery (V1) ✅
+- Generic fallback — any business type (Phase 3.5)
+- Retail / Services / Restaurant — vertical-specific language + presets on top of generic (Phase 3.5+)
 
 The strategy is not to build a dedicated vertical per business type. The core engine is universal. Verticals are a config map (labels, presets, empty state copy) layered on top — not separate builds.
 
@@ -82,7 +82,7 @@ The strategy is not to build a dedicated vertical per business type. The core en
 - **"What happened today?" bar + cards**: compact inline quick-log on every dashboard page (bar) and the home page (3 action cards). Three flows: I bought, I made, I sold. Multi-step "I made" flow with an explicit "did you sell any?" screen. Shows real profit feedback with large number + sentiment color. Remembers last/best profit per business in localStorage and surfaces comparison lines ("Your best sale yet!"). Soft assistant voice after every action.
 - Dashboard: today's profit, at-risk unsold items, quick actions
 - Brand theming, multi-tenant RLS, business timezone support
-- Rule-based AI assistant (no external API)
+- Rule-based AI assistant (no external API — keyword intent matching, hardcoded responses)
 
 **Data focus:**
 
@@ -135,6 +135,87 @@ The strategy is not to build a dedicated vertical per business type. The core en
 - Helps identify which steps lose users and which features need better discovery
 
 **Status:** Not started. `GettingStartedHelper` is the current placeholder. Replace or extend it as part of this phase.
+
+**Assistant upgrade (no API key required):**
+The existing `business-assistant.tsx` component matches keywords and returns hardcoded responses — it does not query any real data. A high-value, zero-cost upgrade in this phase is wiring it to real Supabase RPCs (`dashboard_metrics`, `low_stock_alerts`, per-product COGS) so it returns actual numbers. No external API needed — just data plumbing. This sets the foundation for Phase 1.6.
+
+---
+
+### Phase 1.6 — AI Foundation (Model-Agnostic Assistant)
+
+**Goal:** Introduce a real LLM-powered assistant without locking into a single provider or API cost structure. Start free, upgrade as revenue allows.
+
+**The problem it solves:**
+
+The rule-based assistant hits a ceiling fast — it cannot reason, generalise, or answer unexpected questions. But jumping straight to a paid Claude API integration before the app has paying users creates an unsustainable cost dependency. The solution is a **provider-agnostic AI layer** that starts on a free tier and can be swapped or upgraded per plan tier without rewriting the assistant logic.
+
+**Architecture: Multi-model abstraction**
+
+Use the **Vercel AI SDK** (`ai` package) as the model-agnostic interface. It supports Groq, Anthropic, OpenAI, and others behind a single `streamText` / `generateText` API. Swapping providers is a one-line config change — the assistant code does not know or care which model it is talking to.
+
+```
+User query
+    ↓
+Model Router (selects provider + model based on plan tier / task type)
+    ↓
+Vercel AI SDK (unified interface)
+    ↓
+Provider: Groq (free) | Anthropic Claude | OpenAI GPT-4 | others
+    ↓
+Tool calls → Supabase RPCs (dashboard_metrics, low_stock_alerts, etc.)
+    ↓
+Response streamed back to in-app assistant
+```
+
+**Provider tiers (cost-to-capability ladder)**
+
+| Tier | Provider | Model | Cost | Use case |
+|------|----------|-------|------|----------|
+| **Free** | Groq | `llama-3.3-70b-versatile` or `llama-3.1-8b-instant` | Free (rate-limited) | Default for free plan users — handles most Q&A |
+| **Mid** | Groq | `moonshotai/kimi-k1.5-32k` or `deepseek-r1-distill` | Very cheap | Slightly richer reasoning, still low cost |
+| **Premium** | Anthropic | `claude-haiku-4-5` | Paid — low cost | Fast, capable, great for structured tasks |
+| **Pro** | Anthropic | `claude-sonnet-4-6` | Paid — mid cost | Full reasoning, long context, agent tasks |
+
+The router selects the tier based on:
+- Business plan (`businesses.plan` column — already exists)
+- Task complexity hint (simple Q&A vs. multi-step reasoning)
+- Remaining free quota (fall back gracefully if rate-limited)
+
+**What the assistant can do (Phase 1.6 scope)**
+
+- Answer questions about real business data: "What was my profit this week?", "Which product has the best margin?", "Am I running low on anything?"
+- Explain financial metrics in plain language ("What does COGS mean for my bakery?")
+- Suggest actions ("You have 3 unsold batches — consider logging a giveaway or sale")
+- Streamed responses for perceived speed
+
+**What it does NOT do yet (Phase 7)**
+
+- Mutate data (log a sale, create a batch, restock an item) — that is Phase 7 agent territory
+- Run background or scheduled tasks
+- Operate outside the in-app chat surface
+
+**Self-funding model**
+
+Free plan users → Groq free tier → £0 AI cost  
+Paid plan users → Claude Haiku / Sonnet → API cost covered by subscription revenue  
+This means the AI feature funds itself: only users who pay for it trigger a cost.
+
+**Implementation notes**
+
+- Install `ai`, `@ai-sdk/groq`, `@ai-sdk/anthropic` packages
+- Build a `lib/assistant/model-router.ts` that selects provider + model from `businesses.plan`
+- Build a Next.js `/api/assistant` route handler (streaming) — replaces the current keyword logic in `business-assistant.tsx`
+- Tool definitions map to existing Supabase RPCs — no new DB functions needed
+- Rate limit the free tier assistant server-side (e.g. 20 queries / day for free plan)
+- Never expose API keys client-side — all provider calls stay in the API route handler
+
+**Data to track**
+
+- Assistant queries per business per day (for rate limiting + billing signal)
+- Model used per query (understand real cost distribution)
+- Query resolution rate (did the user get a useful answer or ask again?)
+
+**Status:** Not started. Depends on Phase 1.5 data-wiring of the assistant. Groq free tier can be integrated with minimal infrastructure. Provider router pattern must be in place before Phase 7 adds mutating agent tools.
 
 ---
 
@@ -211,6 +292,55 @@ The bakery vertical is built on a generic data model — items, production runs,
 - Activation rate by type (does a retailer complete the same onboarding steps as a bakery?)
 
 **Status:** Not started. `business_type` column and onboarding selector exist; non-bakery types are disabled. Estimated effort: 2–3 days once Phase 3 multi-user work is stable.
+
+---
+
+### Phase 3.6 — Mobile (PWA)
+
+**Goal:** Give business owners a lightweight, installable mobile experience without a separate native codebase.
+
+**Why PWA, not React Native (at this stage)**
+
+The app is already Next.js + Tailwind — the responsive foundation exists. A PWA adds a `manifest.json` and service worker on top of the existing web app, making it installable to the home screen on iOS and Android, with no App Store submission, no second codebase, and no additional infrastructure. For small business owners (the Operbase user), home screen install is more than sufficient at this stage. A dedicated React Native app can be evaluated when usage data justifies the investment.
+
+**What the mobile experience prioritises**
+
+The mobile app is intentionally lighter than the web app. Owners are in a kitchen, at a market, or on the go — they are not doing financial analysis on their phone. The focus is:
+
+| Surface | Include on mobile | Rationale |
+|---------|-------------------|-----------|
+| Today's profit (dashboard) | ✅ | First thing they want to see |
+| Global Quick Log (FAB) | ✅ | Core mobile action — I made / I sold / I bought |
+| Low stock alerts | ✅ | Actionable, time-sensitive |
+| At-risk unsold batches | ✅ | Quick decision needed |
+| Insights / full analytics | ⬜ | Desktop/tablet — not needed on the go |
+| Products catalog | ⬜ | Setup task — done on desktop |
+| Full stock management | ⬜ | Setup task — done on desktop |
+| Settings | ⬜ | Desktop only |
+
+The Quick Log FAB is already the most mobile-native pattern in the app — Phase 3.6 ensures it is optimised for touch (larger tap targets, swipe-friendly sheets, no hover states).
+
+**What to build**
+
+- `public/manifest.json` — app name, icons, theme color (uses business brand color), display: `standalone`
+- Service worker via `next-pwa` or manual registration — cache shell + static assets for offline load
+- `<meta name="apple-mobile-web-app-capable">` and icon tags for iOS home screen
+- Mobile-specific layout adjustments: safe area insets, bottom nav bar (replaces sidebar on small screens), touch-optimised quick log sheet
+- Offline fallback page — shown if the user opens the app with no connection
+- Push notification groundwork — browser Push API for low-stock and unsold batch alerts (connects to Phase 1 thresholds already in the DB)
+
+**Design principles**
+
+- **One codebase** — all mobile adaptations are responsive CSS + conditional rendering, not a separate app
+- **No feature parity required** — the mobile surface is a deliberate subset; do not port every desktop feature
+- **Brand color on install** — the installed PWA icon and splash screen should reflect the business's brand color
+- **Bottom navigation on mobile** — Today / Log / Alerts (3 tabs max); sidebar stays for tablet/desktop
+
+**Upgrade path**
+
+If mobile usage grows significantly and users need features the PWA cannot deliver (camera access for receipt scanning, native notifications at scale, App Store discoverability), evaluate React Native with Expo at that point. The Supabase backend and API layer will be identical — only the UI layer changes.
+
+**Status:** Not started. Depends on Phase 3 (multi-tenant, stable auth) being solid first. Estimated effort: 3–5 days for PWA baseline + mobile layout polish.
 
 ---
 
@@ -315,32 +445,46 @@ This model positions Operbase as a payment facilitator and enables a transaction
 
 ---
 
-### Phase 7 — Intelligence, MCP, Agents & In-App AI
+### Phase 7 — Intelligence, MCP, Agents & Full AI Upgrade
 
-**Goal:** Make Operbase operable by humans *and* by AI systems — insights in the product, plus a **client-agnostic MCP surface** and optional **agents** and **chatbot** UX.
+**Goal:** Make Operbase operable by humans *and* by AI systems — MCP surface, autonomous agents, and an upgrade of the Phase 1.6 assistant to full mutating / agentic capability. This is also where the multi-model router introduced in Phase 1.6 is extended to support more powerful models as premium plan features.
+
+**Relationship to Phase 1.6**
+
+Phase 1.6 introduced the AI foundation: Vercel AI SDK, the model router, Groq free tier, and read-only tool calls to Supabase RPCs. Phase 7 builds directly on top of that layer — it does not replace it. The upgrade path is:
+
+| Phase 1.6 (foundation) | Phase 7 (full capability) |
+|------------------------|---------------------------|
+| Read-only tool calls (dashboard metrics, stock alerts) | Mutating tool calls (log sale, create batch, restock item) |
+| In-app chat only | MCP surface (external clients: Cursor, Claude Desktop, etc.) |
+| Groq free tier for free plan | Claude Sonnet / Pro models for paid tiers |
+| Single-turn Q&A | Multi-step agents, scheduled background tasks |
+| Manual query | Proactive triggers (low stock → auto-notify + suggest restock) |
 
 **Why MCP first**
 
-- One well-designed **Operbase MCP server** (tools/resources scoped by `business_id` + auth) lets **any** MCP host attach: IDEs, desktop assistants, mobile experiments, partner integrations.  
-- **Agents** (multi-step automation, scheduled jobs, “record this sale from voice note”) should call the **same** underlying contracts as MCP — avoid duplicating business logic in prompt-only paths.  
-- **In-app chatbot** is the friendly surface for non-technical owners; it should use the same tool layer as MCP where possible, not a separate shadow API.
+- One well-designed **Operbase MCP server** (tools scoped by `business_id` + auth) lets **any** MCP host attach: IDEs, desktop assistants, mobile experiments, partner integrations.
+- **Agents** (multi-step automation, scheduled jobs, “record this sale from voice note”) should call the **same** underlying contracts as MCP — avoid duplicating business logic in prompt-only paths.
+- **In-app chatbot** (already live from Phase 1.6) gets upgraded to use the same tool backend as MCP — not a separate shadow API.
 
 **Features (ordered roughly by dependency)**
 
 | Track | What | Notes |
 |--------|------|--------|
-| **MCP server** | Expose vetted tools (read stock levels, summarize dashboard, draft sale line items, etc.) with strict auth and RLS-aligned behavior | Ship read-only or low-risk tools first; mutating tools behind confirmation patterns |
-| **Agents** | Orchestrated flows: e.g. weekly profit summary, low-stock digest, “close the day” checklist | Requires reliable tool contracts + logging/audit |
-| **In-app AI chatbot** | Embedded assistant on dashboard / key pages | Same tool backend as MCP; different UI and rate limits |
-| **Insights (classic)** | AI recommendations, profit/cost narratives, anomaly hints | Can consume the same analytics RPCs as today + event data |
+| **Mutating tools** | Extend the Phase 1.6 tool layer with write operations: log sale, create batch, restock item, dispose units | Behind explicit human confirmation UI — never silent mutations |
+| **MCP server** | Expose the same tools (read + mutating) as an MCP server with OAuth / API key auth | Read-only tools ship first; mutating tools behind confirmation patterns |
+| **Model router upgrade** | Route Pro plan users to `claude-sonnet-4-6`; add task-type routing (simple Q&A → cheap model; multi-step agent → capable model) | Builds on Phase 1.6 router — same interface, new tier entries |
+| **Agents** | Orchestrated flows: weekly profit summary, low-stock digest, “close the day” checklist | Requires reliable tool contracts + audit logging |
+| **Background tasks** | Scheduled agent runs (daily summary email, weekly margin report) | Requires server-side agent loop, not just a chat endpoint |
+| **Insights narratives** | AI-generated profit/cost narratives, anomaly detection, forward-looking suggestions | Consumes existing analytics RPCs + event data from `analytics_events` |
 
 **Data focus**
 
-- Historical trends  
-- Predictive patterns  
-- Tool invocation logs (which tools, which business, success/failure) — for safety and billing later  
+- Historical trends and predictive patterns
+- Tool invocation logs (which tools, which business, success/failure) — for safety and billing later
+- Model usage per plan tier — validates cost assumptions for Phase 8 pricing
 
-**Status:** Not started. **Scope guard:** do not ship MCP/agents/chatbot until Phase 1–3 foundations are stable and auth + tenant boundaries are non-negotiable in the tool layer.
+**Status:** Not started. **Scope guard:** do not ship MCP/agents/mutating tools until Phase 1–3 foundations are stable and auth + tenant boundaries are non-negotiable in the tool layer. Phase 1.6 must be live and validated first.
 
 ---
 
@@ -358,8 +502,9 @@ This model positions Operbase as a payment facilitator and enables a transaction
 
 **Design principles:**
 
-- Never gate Phase 1 core features (stock, production, sales) for existing users — grandfather them  
-- Advanced features (multi-location, tax filing, invoice generation, ecommerce) are paid-tier  
+- Never gate Phase 1 core features (stock, production, sales) for existing users — grandfather them
+- Advanced features (multi-location, tax filing, invoice generation, ecommerce) are paid-tier
+- **AI assistant is a paid-tier feature** — free plan gets rate-limited Groq access (Phase 1.6); Starter/Pro plans unlock higher quotas and more capable models (Claude Haiku → Sonnet). API costs are covered by subscription revenue — the AI feature is self-funding.
 - Billing is per business, not per user seat (at least initially)  
 
 **Fee models — research (not a committed design)**
@@ -370,6 +515,7 @@ Several monetisation shapes are on the table; **none is chosen**. Validate with 
 |------|---------------------|
 | **Platform / take rate** | Small % on payments processed through Operbase-managed gateways (already noted in Phase 4) — aligns when we facilitate money movement |
 | **Per-user (seat) fee** | Makes sense when Phase 2 multi-user is mature and larger teams drive cost |
+| **AI assistant quota tier** | Free plan: limited Groq queries/day. Starter: higher quota + Claude Haiku. Pro: unlimited + Claude Sonnet + agent features. Subscription revenue directly funds API costs — no cross-subsidisation. |
 | **Product-combination or bundle fee** | Charge differently when certain *combinations* of modules/features are enabled (e.g. inventory + ecommerce + AI) — needs clear packaging, not ad-hoc SQL |
 | **User-defined “fee flow”** | Let a business configure rules like “when products A+B appear on an order, apply fee X” — powerful for franchises/marketplaces but high complexity; might overlap with tax/discount engines (Phase 6) |
 
@@ -628,6 +774,9 @@ This section must be completed **before any paid plan is offered or user data is
 | Hosting cost spike | Vercel team Pro when revenue justifies; one plan covers all projects under the org |
 | Customer network becomes a data trust problem | Be transparent from day one that operational data informs matching; never sell raw data; success fee model keeps incentives aligned |
 | MCP / agents exfiltrate or corrupt tenant data | Ship read-only tools first; mutating tools behind explicit human confirmation; audit logs; same RLS rules as the app — never bypass `business_id` |
+| AI API cost before revenue exists | Multi-model abstraction (Phase 1.6): free plan uses Groq free tier (£0 cost); paid plan subscribers fund Claude API usage via subscription revenue. Rate-limit free tier server-side. Cost scales with paying users, not with total signups. |
+| Vendor lock-in to a single AI provider | Vercel AI SDK as the abstraction layer — swapping providers is a config change, not a rewrite. Never call a provider SDK directly from assistant logic. |
+| Mobile experience inconsistent across devices | PWA approach (Phase 3.6) reuses existing Next.js codebase; test on iOS Safari and Android Chrome specifically. Bottom nav + safe area insets handle the key edge cases. |
 
 ---
 

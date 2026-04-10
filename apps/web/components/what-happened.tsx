@@ -28,6 +28,7 @@ interface StockItem {
   name: string
   purchaseUnitId: string | null
   purchaseUnitName: string
+  conversionRatio: number
 }
 
 interface Product {
@@ -130,7 +131,7 @@ function WhatHappenedInner({
     void Promise.all([
       supabase
         .from('items')
-        .select('id, name, purchase_unit_id, purchase_unit:units!items_purchase_unit_id_fkey(id, name)')
+        .select('id, name, purchase_unit_id, conversion_ratio, purchase_unit:units!items_purchase_unit_id_fkey(id, name)')
         .eq('business_id', businessId)
         .order('name'),
       supabase
@@ -149,6 +150,7 @@ function WhatHappenedInner({
             name: i.name as string,
             purchaseUnitId: (i.purchase_unit_id as string | null) ?? null,
             purchaseUnitName: pu?.name ?? '',
+            conversionRatio: Number(i.conversion_ratio ?? 1) || 1,
           }
         })
       )
@@ -208,6 +210,7 @@ function WhatHappenedInner({
       const existing = stockItems.find(i => i.name.toLowerCase() === name.toLowerCase())
       let itemId = existing?.id ?? null
       const unitName = existing?.purchaseUnitName || 'piece'
+      const conversionRatio = existing?.conversionRatio ?? 1
 
       if (!itemId) {
         const { data: newItem, error: iErr } = await supabase
@@ -242,22 +245,24 @@ function WhatHappenedInner({
         .select('quantity_remaining')
         .eq('business_id', businessId)
         .eq('item_id', itemId)
-      const totalStock = (lots ?? []).reduce(
+      // quantity_remaining is in usage units — convert back to purchase units for display
+      const totalStockUsage = (lots ?? []).reduce(
         (sum: number, l: { quantity_remaining: number | string }) => sum + Number(l.quantity_remaining),
         0
       )
+      const totalStockPurchase = Math.round((totalStockUsage / conversionRatio) * 1000) / 1000
 
       const boughtLines: string[] = []
       if (totalCost > 0) boughtLines.push(`You spent ${formatCurrency(totalCost, currency)}.`)
       boughtLines.push(
-        totalStock > 0
-          ? `You now have ${totalStock} ${unitName} of ${name} in stock.`
+        totalStockPurchase > 0
+          ? `You now have ${totalStockPurchase} ${unitName} of ${name} in stock.`
           : 'Stock updated. ✓'
       )
       boughtLines.push('Ready for your next production run.')
 
       setResult({
-        headline: `${qty} ${unitName} of ${name} added.`,
+        headline: `${qty} ${unitName} of ${name} logged.`,
         lines: boughtLines,
       })
       setScreen('done')
@@ -609,11 +614,27 @@ function WhatHappenedInner({
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-sm font-medium text-gray-600 block mb-1.5">How many did you get?</label>
+                    {(() => {
+                      const unit = stockItems.find(i => i.name.toLowerCase() === bName.trim().toLowerCase())?.purchaseUnitName
+                      return (
+                        <label className="text-sm font-medium text-gray-600 block mb-1.5">
+                          {unit ? `How many ${unit} did you buy?` : 'How many did you buy?'}
+                        </label>
+                      )
+                    })()}
                     <Input type="number" min="0" step="any" placeholder="10" value={bQty} onChange={e => setBQty(e.target.value)} className="border-gray-200 wh-input" />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-gray-600 block mb-1.5">How much did you pay?</label>
+                    {(() => {
+                      const unit = stockItems.find(i => i.name.toLowerCase() === bName.trim().toLowerCase())?.purchaseUnitName
+                      const qty = parseFloat(bQty)
+                      const qtyStr = qty > 0 ? `${qty} ${unit ?? ''}`.trim() : unit ?? ''
+                      return (
+                        <label className="text-sm font-medium text-gray-600 block mb-1.5">
+                          {qtyStr ? `How much did you pay for ${qtyStr}?` : 'How much did you pay?'}
+                        </label>
+                      )
+                    })()}
                     <Input type="number" min="0" step="any" placeholder={`${currency} 0`} value={bCost} onChange={e => setBCost(e.target.value)} className="border-gray-200 wh-input" />
                   </div>
                 </div>
