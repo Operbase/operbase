@@ -292,7 +292,7 @@ export function StockPageClient({
       usageUnitId: item.usage_unit_id ?? '',
       conversionRatio: item.conversion_ratio.toString(),
       costPerPurchase: item.cost_per_unit.toString(),
-      openingPurchaseQty: '',
+      openingPurchaseQty: '1',
       lowStockThreshold: item.low_stock_threshold?.toString() ?? '',
       notes: item.notes ?? '',
     })
@@ -321,13 +321,11 @@ export function StockPageClient({
     }
 
     const costEntered = parseFloat(form.costPerPurchase) || 0
-    const openingPurchase = parseFloat(form.openingPurchaseQty) || 0
+    const openingPurchase = parseFloat(form.openingPurchaseQty) || 1
 
-    // costEntered is the TOTAL paid for openingPurchase units (on add),
-    // or the cost for ONE unit (on edit, where there is no qty field).
-    const costPerUnit = !editingItem && openingPurchase > 1
-      ? costEntered / openingPurchase
-      : costEntered
+    // costEntered is always the TOTAL paid for openingPurchase units.
+    // Derive cost per single purchase unit for the item record.
+    const costPerUnit = openingPurchase > 0 ? costEntered / openingPurchase : costEntered
 
     setIsSubmitting(true)
 
@@ -617,39 +615,40 @@ export function StockPageClient({
                   </div>
                 )}
 
-                {/* Opening qty — new items only */}
-                {!editingItem && (
-                  <div>
-                    <Label htmlFor="openingQty">
-                      How many {purchaseUnitName || 'units'} did you buy?
-                    </Label>
+                {/* Qty — always shown (opening stock on add, reference qty on edit) */}
+                <div>
+                  <Label htmlFor="openingQty">
+                    How many {purchaseUnitName || 'units'} did you buy?
+                  </Label>
+                  {!editingItem && (
                     <WholeNumberChips
                       values={[1, 2, 5, 10]}
                       onPick={(n) => setForm((f) => ({ ...f, openingPurchaseQty: String(n) }))}
                       className="my-2"
                     />
-                    <Input
-                      id="openingQty"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      inputMode="decimal"
-                      value={form.openingPurchaseQty}
-                      onChange={(e) => setForm({ ...form, openingPurchaseQty: e.target.value })}
-                      className="min-h-11 text-base"
-                    />
-                  </div>
-                )}
+                  )}
+                  <Input
+                    id="openingQty"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    value={form.openingPurchaseQty}
+                    onChange={(e) => setForm({ ...form, openingPurchaseQty: e.target.value })}
+                    className="min-h-11 text-base mt-1"
+                    placeholder="e.g. 3"
+                  />
+                </div>
 
                 {/* Cost — total paid */}
                 <div>
                   {(() => {
                     const pq = parseFloat(form.openingPurchaseQty)
                     const unit = purchaseUnitName || 'purchase'
-                    if (!editingItem && pq > 0) {
+                    if (pq > 0) {
                       return <Label htmlFor="cost">How much did you pay for {pq} {unit}?</Label>
                     }
-                    return <Label htmlFor="cost">How much did you pay for one {unit}?</Label>
+                    return <Label htmlFor="cost">How much did you pay?</Label>
                   })()}
                   <Input
                     id="cost"
@@ -675,7 +674,7 @@ export function StockPageClient({
                   >
                     {(() => {
                       const openingQtyNum = parseFloat(form.openingPurchaseQty) || 1
-                      const perUnit = !editingItem && openingQtyNum > 1
+                      const perUnit = openingQtyNum > 0
                         ? costPreviewPurchase / openingQtyNum
                         : costPreviewPurchase
                       return (
