@@ -320,7 +320,15 @@ export function StockPageClient({
       return
     }
 
-    const costPurchase = parseFloat(form.costPerPurchase) || 0
+    const costEntered = parseFloat(form.costPerPurchase) || 0
+    const openingPurchase = parseFloat(form.openingPurchaseQty) || 0
+
+    // costEntered is the TOTAL paid for openingPurchase units (on add),
+    // or the cost for ONE unit (on edit, where there is no qty field).
+    const costPerUnit = !editingItem && openingPurchase > 1
+      ? costEntered / openingPurchase
+      : costEntered
+
     setIsSubmitting(true)
 
     try {
@@ -332,7 +340,7 @@ export function StockPageClient({
         purchase_unit_id: purchaseId,
         usage_unit_id: usageId,
         conversion_ratio: ratio,
-        cost_per_unit: costPurchase,
+        cost_per_unit: costPerUnit,
         low_stock_threshold:
           form.lowStockThreshold.trim() === '' ? null : parseFloat(form.lowStockThreshold),
         notes: form.notes || null,
@@ -346,14 +354,13 @@ export function StockPageClient({
         const { data: newItem, error } = await supabase.from('items').insert(payload).select().single()
         if (error) throw error
 
-        const openingPurchase = parseFloat(form.openingPurchaseQty)
         if (openingPurchase > 0) {
-          const totalPaid = costPurchase * openingPurchase
+          // Pass total paid directly — RPC derives cost_per_usage_unit internally
           const { error: lotErr } = await supabase.rpc('add_purchase_lot', {
             p_business_id: businessId,
             p_item_id: newItem.id,
             p_purchase_qty: openingPurchase,
-            p_total_cost_paid: totalPaid,
+            p_total_cost_paid: costEntered,
             p_note: 'Opening stock',
           })
           if (lotErr) throw lotErr
@@ -400,15 +407,19 @@ export function StockPageClient({
       return
     }
 
-    const enteredCost = parseFloat(restockCostPerPurchase)
-    const costPerPurchase =
-      enteredCost > 0 ? enteredCost : restockItem.cost_per_unit
+    // restockCostPerPurchase is the TOTAL paid for purchaseQty units
+    const enteredTotalCost = parseFloat(restockCostPerPurchase)
+    // Total paid: use what they entered, or fall back to stored per-unit × qty
+    const totalPaid = enteredTotalCost > 0
+      ? enteredTotalCost
+      : restockItem.cost_per_unit * purchaseQty
+    // Derive per-unit cost to update the item record
+    const newCostPerUnit = totalPaid / purchaseQty
 
     setIsSubmitting(true)
     try {
       const ratio = restockItem.conversion_ratio > 0 ? restockItem.conversion_ratio : 1
       const usageQty = usageQuantityFromPurchaseQty(purchaseQty, ratio)
-      const totalPaid = costPerPurchase * purchaseQty
 
       const { error } = await supabase.rpc('add_purchase_lot', {
         p_business_id: businessId,
@@ -420,10 +431,10 @@ export function StockPageClient({
 
       if (error) throw error
 
-      if (costPerPurchase !== restockItem.cost_per_unit) {
+      if (Math.abs(newCostPerUnit - restockItem.cost_per_unit) > 0.0001) {
         await supabase
           .from('items')
-          .update({ cost_per_unit: costPerPurchase })
+          .update({ cost_per_unit: newCostPerUnit })
           .eq('id', restockItem.id)
       }
 
@@ -466,8 +477,9 @@ export function StockPageClient({
     const cp = parseFloat(restockCostPerPurchase)
     const ratio = restockItem.conversion_ratio > 0 ? restockItem.conversion_ratio : 1
     if (!pq || pq <= 0) return null
-    const priceOne = cp > 0 ? cp : restockItem.cost_per_unit
-    const totalSpend = priceOne * pq
+    // cp is total paid; fall back to stored per-unit × qty if not entered
+    const totalSpend = cp > 0 ? cp : restockItem.cost_per_unit * pq
+    const priceOne = totalSpend / pq
     const perRecipe = costPerUsageUnit(priceOne, ratio)
     const usageAdded = usageQuantityFromPurchaseQty(pq, ratio)
     return { totalSpend, perRecipe, usageAdded }
@@ -554,24 +566,6 @@ export function StockPageClient({
                   </select>
                 </div>
 
-                {/* Cost per purchase */}
-                <div>
-                  <Label htmlFor="cost">
-                    What you paid for one {purchaseUnitName || 'purchase'}
-                  </Label>
-                  <Input
-                    id="cost"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    inputMode="decimal"
-                    value={form.costPerPurchase}
-                    onChange={(e) => setForm({ ...form, costPerPurchase: e.target.value })}
-                    placeholder="0.00"
-                    className="min-h-11 text-base mt-1"
-                  />
-                </div>
-
                 {/* Usage unit */}
                 <div>
                   <Label htmlFor="usageUnit">How you measure it in recipes</Label>
@@ -629,9 +623,6 @@ export function StockPageClient({
                     <Label htmlFor="openingQty">
                       How many {purchaseUnitName || 'units'} did you buy?
                     </Label>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      This sets your starting stock
-                    </p>
                     <WholeNumberChips
                       values={[1, 2, 5, 10]}
                       onPick={(n) => setForm((f) => ({ ...f, openingPurchaseQty: String(n) }))}
@@ -650,6 +641,29 @@ export function StockPageClient({
                   </div>
                 )}
 
+                {/* Cost — total paid */}
+                <div>
+                  {(() => {
+                    const pq = parseFloat(form.openingPurchaseQty)
+                    const unit = purchaseUnitName || 'purchase'
+                    if (!editingItem && pq > 0) {
+                      return <Label htmlFor="cost">How much did you pay for {pq} {unit}?</Label>
+                    }
+                    return <Label htmlFor="cost">How much did you pay for one {unit}?</Label>
+                  })()}
+                  <Input
+                    id="cost"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    value={form.costPerPurchase}
+                    onChange={(e) => setForm({ ...form, costPerPurchase: e.target.value })}
+                    placeholder="0.00"
+                    className="min-h-11 text-base mt-1"
+                  />
+                </div>
+
                 {/* Cost preview */}
                 {costPreviewPurchase > 0 && (
                   <div
@@ -659,23 +673,33 @@ export function StockPageClient({
                       backgroundColor: 'var(--brand-light)',
                     }}
                   >
-                    <div className="flex justify-between gap-3">
-                      <span className="text-gray-700">Per {purchaseUnitName || 'purchase'}</span>
-                      <strong className="tabular-nums" style={{ color: 'var(--brand-dark)' }}>
-                        {formatCurrency(costPreviewPurchase, currency)}
-                      </strong>
-                    </div>
-                    {!sameUnit && costPreviewRatio > 0 && usageUnitName && (
-                      <div className="flex justify-between gap-3">
-                        <span className="text-gray-700">Per {usageUnitName}</span>
-                        <strong className="tabular-nums" style={{ color: 'var(--brand-dark)' }}>
-                          {formatCurrency(
-                            costPerUsageUnit(costPreviewPurchase, costPreviewRatio),
-                            currency
+                    {(() => {
+                      const openingQtyNum = parseFloat(form.openingPurchaseQty) || 1
+                      const perUnit = !editingItem && openingQtyNum > 1
+                        ? costPreviewPurchase / openingQtyNum
+                        : costPreviewPurchase
+                      return (
+                        <>
+                          <div className="flex justify-between gap-3">
+                            <span className="text-gray-700">Per {purchaseUnitName || 'purchase'}</span>
+                            <strong className="tabular-nums" style={{ color: 'var(--brand-dark)' }}>
+                              {formatCurrency(perUnit, currency)}
+                            </strong>
+                          </div>
+                          {!sameUnit && costPreviewRatio > 0 && usageUnitName && (
+                            <div className="flex justify-between gap-3">
+                              <span className="text-gray-700">Per {usageUnitName}</span>
+                              <strong className="tabular-nums" style={{ color: 'var(--brand-dark)' }}>
+                                {formatCurrency(
+                                  costPerUsageUnit(perUnit, costPreviewRatio),
+                                  currency
+                                )}
+                              </strong>
+                            </div>
                           )}
-                        </strong>
-                      </div>
-                    )}
+                        </>
+                      )
+                    })()}
                   </div>
                 )}
 
