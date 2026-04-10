@@ -340,14 +340,13 @@ export function GlobalQuickLog() {
       }
 
       const { data: batchId, error: bErr } = await supabase.rpc('create_production_batch', {
-        p_business_id:        businessId,
-        p_product_id:         productId,
-        p_display_name:       name,
-        p_units_produced:     qty,
-        p_produced_at:        businessCalendarDateToIsoUtc(madeForm.date, timezone),
-        p_extra_notes:        null,
-        p_lines:              [],
-        p_units_not_for_sale: 0,
+        p_business_id:    businessId,
+        p_product_id:     productId,
+        p_display_name:   name,
+        p_units_produced: qty,
+        p_produced_at:    businessCalendarDateToIsoUtc(madeForm.date, timezone),
+        p_extra_notes:    null,
+        p_lines:          [],
         ...(madeForm.variantId ? { p_variant_id: madeForm.variantId } : {}),
       })
       if (bErr) throw bErr

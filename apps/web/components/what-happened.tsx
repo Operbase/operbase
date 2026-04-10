@@ -304,13 +304,12 @@ function WhatHappenedInner({
 
       const { data: batchId, error: bErr } = await supabase.rpc('create_production_batch', {
         p_business_id: businessId,
-        p_product_id: productId,
-        p_display_name: name,
         p_units_produced: qty,
         p_produced_at: businessCalendarDateToIsoUtc(today, timezone),
+        p_display_name: name,
         p_extra_notes: null,
         p_lines: [],
-        p_units_not_for_sale: 0,
+        p_product_id: productId,
       })
       if (bErr) throw bErr
 
