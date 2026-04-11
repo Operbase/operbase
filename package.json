@@ -1,0 +1,8 @@
+{
+  "name": "operbase",
+  "private": true,
+  "scripts": {
+    "db:push:dev":  "set -a && . ./.env && set +a && supabase link --project-ref hplsdhcxlvmwvvskxwfe --workdir packages && supabase db push --workdir packages",
+    "db:push:prod": "set -a && . ./.env && set +a && supabase link --project-ref usbdxwddcxqwhhwxkbwq --workdir packages && supabase db push --workdir packages"
+  }
+}
