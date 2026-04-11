@@ -353,9 +353,14 @@ export async function loadInsightsData(
     }
   }
 
-  // Aggregate batches by product+variant
+  // Aggregate batches by product+variant.
+  // costedUnits tracks units produced only in batches where ingredients were logged
+  // (cost_of_goods > 0). Used for avgCostPerUnit so that quick-log runs without
+  // ingredient lines don't dilute the average with false zeros.
   type BatchAgg = {
-    totalProduced: number; totalRemaining: number; totalCog: number; runCount: number
+    totalProduced: number; totalRemaining: number
+    totalCog: number; costedUnits: number   // only from batches with real costs
+    runCount: number
     totalSpoiled: number; totalNotSold: number; totalGivenAway: number; allZeroCog: boolean
   }
   const batchByKey = new Map<string, BatchAgg>()
@@ -363,16 +368,18 @@ export async function loadInsightsData(
   for (const b of batches) {
     const key  = `${b.product_id}::${b.variant_id ?? ''}`
     const pkey = `${b.product_id}::`
+    const cog  = Number(b.cost_of_goods ?? 0)
+    const up   = Number(b.units_produced ?? 0)
     for (const k of [key, ...(b.variant_id ? [pkey] : [])]) {
-      const e = batchByKey.get(k) ?? { totalProduced: 0, totalRemaining: 0, totalCog: 0, runCount: 0, totalSpoiled: 0, totalNotSold: 0, totalGivenAway: 0, allZeroCog: true }
-      e.totalProduced   += Number(b.units_produced ?? 0)
+      const e = batchByKey.get(k) ?? { totalProduced: 0, totalRemaining: 0, totalCog: 0, costedUnits: 0, runCount: 0, totalSpoiled: 0, totalNotSold: 0, totalGivenAway: 0, allZeroCog: true }
+      e.totalProduced   += up
       e.totalRemaining  += Number(b.units_remaining ?? 0)
-      e.totalCog        += Number(b.cost_of_goods ?? 0)
+      e.totalCog        += cog
+      if (cog > 0) { e.costedUnits += up; e.allZeroCog = false }
       e.runCount        += 1
       e.totalSpoiled    += Number(b.units_spoiled ?? 0)
       e.totalNotSold    += Number(b.units_not_sold_loss ?? 0)
       e.totalGivenAway  += Number(b.units_given_away ?? 0) + Number(b.units_given_out_extra ?? 0)
-      if (Number(b.cost_of_goods ?? 0) > 0) e.allZeroCog = false
       batchByKey.set(k, e)
     }
   }
@@ -384,7 +391,7 @@ export async function loadInsightsData(
     const ba   = batchByKey.get(pkey)
     const salePriceNum = Number(p.sale_price ?? 0)
 
-    const avgCpu = ba && ba.totalProduced > 0 ? ba.totalCog / ba.totalProduced : null
+    const avgCpu = ba && ba.costedUnits > 0 ? ba.totalCog / ba.costedUnits : null
     const marginPct = sa && sa.revenue > 0 ? (sa.profit / sa.revenue) * 100 : null
     const wasteRate = ba && ba.totalProduced > 0
       ? ((ba.totalSpoiled + ba.totalNotSold) / ba.totalProduced) * 100
@@ -398,7 +405,7 @@ export async function loadInsightsData(
         const vkey = `${p.id}::${v.id}`
         const vs   = salesByKey.get(vkey)
         const vb   = batchByKey.get(vkey)
-        const vAvg = vb && vb.totalProduced > 0 ? vb.totalCog / vb.totalProduced : null
+        const vAvg = vb && vb.costedUnits > 0 ? vb.totalCog / vb.costedUnits : null
         return {
           variantId:       v.id,
           variantName:     v.name,
@@ -459,8 +466,9 @@ export async function loadInsightsData(
   const totalNotSoldUnits   = batches.reduce((s, b) => s + Number(b.units_not_sold_loss ?? 0), 0)
   const totalGivenAway      = batches.reduce((s, b) => s + Number(b.units_given_away ?? 0) + Number(b.units_given_out_extra ?? 0), 0)
 
-  // Estimate spoiled/not-sold cost using avg cost across all batches
-  const globalAvgCpu = totalProduced > 0 ? totalProductionCost / totalProduced : 0
+  // Estimate spoiled/not-sold cost using avg cost across costed batches only
+  const totalCostedUnits = batches.reduce((s, b) => s + (Number(b.cost_of_goods ?? 0) > 0 ? Number(b.units_produced ?? 0) : 0), 0)
+  const globalAvgCpu = totalCostedUnits > 0 ? totalProductionCost / totalCostedUnits : 0
   const totalSpoiledCost  = totalSpoiledUnits  * globalAvgCpu
   const totalNotSoldCost  = totalNotSoldUnits  * globalAvgCpu
 
