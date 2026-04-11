@@ -42,11 +42,14 @@ async function loadBatchCosts(
   businessId: string
 ): Promise<CostRow[]> {
   // Pull all batches with cost data, group in JS (PostgREST doesn't do GROUP BY)
+  // Only include batches where ingredient costs were actually tracked (cost_of_goods > 0).
+  // Batches logged without ingredient lines store cost_of_goods = 0 and must be excluded
+  // so they don't dilute the average with false zeros.
   const { data, error } = await supabase
     .from('batches')
     .select('product_id, variant_id, cost_of_goods, units_produced')
     .eq('business_id', businessId)
-    .not('cost_of_goods', 'is', null)
+    .gt('cost_of_goods', 0)
     .gt('units_produced', 0)
 
   if (error) throw error

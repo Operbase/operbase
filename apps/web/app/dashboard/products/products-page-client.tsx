@@ -241,7 +241,7 @@ export function ProductsPageClient({
         .from('batches')
         .select('product_id, variant_id, cost_of_goods, units_produced')
         .eq('business_id', businessId)
-        .not('cost_of_goods', 'is', null)
+        .gt('cost_of_goods', 0)
         .gt('units_produced', 0),
     ])
 
