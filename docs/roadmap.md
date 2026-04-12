@@ -66,8 +66,8 @@ The strategy is not to build a dedicated vertical per business type. The core en
 | Single business, single location | Default — one business, no branches |
 | Single business, multiple branches (e.g. 5 restaurant locations) | Phase 3.7 — branches under one entity; consolidated + per-branch financials |
 | Multiple businesses, same owner (e.g. bakery + restaurant) | Phase 3.8 — owner console; one login, business switcher, cross-business roll-up |
-| Virtual (online only) | Phase 3.5 business_mode flag; Phase 5 ecommerce storefront auto-enabled |
-| Physical (in-store) | Default; ecommerce opt-in |
+| Virtual (online only) | Phase 3.5 business_mode flag drives UX language; ecommerce storefront is opt-in, not assumed |
+| Physical (in-store) | Default mode; ecommerce opt-in if they want an online ordering page |
 | Both (store + online orders) | Phase 3.5 + Phase 5; walk-in and online sales tracked in same profit engine |
 
 ### Integrations (exploratory)
@@ -295,12 +295,12 @@ The bakery vertical is built on a generic data model — items, production runs,
 
 **Business mode (physical vs virtual)**
 
-Not every business has a physical store. A baker who only takes orders on WhatsApp and delivers is a virtual business. Someone with a shop counter is physical. Many are both.
+Not every business has a physical store. A baker who only takes orders on WhatsApp and delivers is a virtual business. Someone with a shop counter is physical. Many are both. Either way, they might or might not want an Operbase storefront — that is a separate choice.
 
 Add `business_mode: 'physical' | 'virtual' | 'both'` at onboarding (one extra question: "Do you sell in a physical location, online only, or both?"). This drives:
 
-- Ecommerce storefront opt-in at Phase 5: virtual and both-mode businesses default to having a public storefront; physical-only businesses can opt in manually
-- Future UX: virtual businesses see "order link" where physical businesses see "walk-in sale"; both see both
+- **UX language only** — virtual businesses see "order received" where physical businesses see "walk-in sale"; both see both. It tells the app how to frame things, not what features to enable.
+- Ecommerce (Phase 5) is **always opt-in** regardless of mode. A virtual seller might already have their channel (Instagram, WhatsApp) and use Operbase purely for back-office — no storefront needed. A physical store owner might want an online ordering page too. The choice is theirs, not assumed.
 - This is a config flag, not a schema fork — the same tables serve all modes
 
 **What does NOT change:**
@@ -519,7 +519,7 @@ Every business on Operbase already has a product catalog with names, variants, a
 - The storefront is generated from the existing `products` + `product_variants` + `product_addons` tables — no manual rebuild
 - Brand color, logo, and business name from onboarding flow directly into the storefront — it looks like their brand, not a generic marketplace
 - If they update a product name or price in Operbase, the storefront updates automatically
-- Virtual and "both" mode businesses (Phase 3.5) default to ecommerce enabled. Physical-only businesses opt in.
+- Ecommerce is always opt-in — business mode does not determine this. A virtual seller may already use Instagram or WhatsApp as their channel and only need Operbase for back-office. A physical store owner may want an online ordering page. Either can enable it; neither has it forced on them.
 
 **What the storefront includes:**
 
@@ -541,11 +541,17 @@ An order placed on the storefront is not just a sales record — it creates a de
 - On fulfil: links to a production batch (if items are made fresh per order) or deducts from existing `units_remaining`
 - Revenue and COGS flow into the same profit engine as walk-in sales — no separate P&L
 
-**Branch + ecommerce:**
+**Branch + ecommerce (fulfilment config):**
 
-If the business has branches (Phase 3.7), the storefront can be configured per branch or per entity:
-- Entity storefront: customer picks location/branch at checkout
-- Branch storefront: each branch gets its own URL (e.g. `operbase.store/bakery-ikeja`)
+If a business has branches AND has enabled ecommerce, the owner configures how orders are fulfilled. This is a settings choice, not automatic:
+
+| Fulfilment option | What happens |
+|-------------------|--------------|
+| **Pickup at store** | Customer selects a branch as pickup point at checkout. Branch list comes from Phase 3.7 branch records. |
+| **Delivery to address** | Customer enters a delivery address. No branch selection needed. |
+| **Both** | Customer chooses pickup or delivery. If pickup, they then pick a branch. |
+
+A business without branches simply doesn't show the branch picker — fulfilment is just pickup (single location) or delivery. No branch concept needed at checkout unless the owner has set up branches.
 
 **Design principles:**
 
@@ -560,7 +566,7 @@ If the business has branches (Phase 3.7), the storefront can be configured per b
 - Order source (walk-in vs. online) — already distinguishable by `batch_id` presence and `source` flag on sales
 - Repeat customer rate from online orders
 
-**Status:** Not started. Product catalog (Phase 1) is the foundation. Payment gateway integration (Phase 4) must come first. Phase 3.5 business mode flag determines default opt-in.
+**Status:** Not started. Product catalog (Phase 1) is the foundation. Payment gateway integration (Phase 4) must come first. Ecommerce is always opt-in via a single toggle in Settings — business mode has no bearing on the default.
 
 ---
 
