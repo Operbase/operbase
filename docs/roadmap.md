@@ -43,7 +43,7 @@ The long-term possibility — not a guarantee, but a direction worth building to
 - Payment Integrations
 - Invoicing + Document Printing
 - Globalisation (tax, multi-location, multi-country)
-- **AI Assistant (model-agnostic)** — starts with Groq free tier in Phase 1.6; upgrades to Claude Haiku/Sonnet for paid plans in Phase 7; multi-model router keeps provider switching a config change, not a rewrite *(see Phases 1.6 & 7)*
+- **AI Assistant (model-agnostic)** — starts with Groq free tier in Phase 1.7; upgrades to Claude Haiku/Sonnet for paid plans in Phase 7; multi-model router keeps provider switching a config change, not a rewrite *(see Phases 1.7 & 7)*
 - **Operbase MCP** — a Model Context Protocol server exposing safe, business-scoped tools so **any MCP-capable client** (Cursor, Claude Desktop, custom apps) can query and act on behalf of an authenticated business *(see Phase 7)*
 - **Agents** — autonomous or semi-autonomous workflows on top of the same capabilities (often MCP + server-side orchestration) *(see Phase 7)*
 - **Mobile (PWA)** — installable progressive web app; mobile-optimised surface focused on quick log, today's profit, and alerts *(see Phase 3.6)*
@@ -152,11 +152,11 @@ The strategy is not to build a dedicated vertical per business type. The core en
 **Status:** Not started. `GettingStartedHelper` is the current placeholder. Replace or extend it as part of this phase.
 
 **Assistant upgrade (no API key required):**
-The existing `business-assistant.tsx` component matches keywords and returns hardcoded responses — it does not query any real data. A high-value, zero-cost upgrade in this phase is wiring it to real Supabase RPCs (`dashboard_metrics`, `low_stock_alerts`, per-product COGS) so it returns actual numbers. No external API needed — just data plumbing. This sets the foundation for Phase 1.6.
+The existing `business-assistant.tsx` component matches keywords and returns hardcoded responses — it does not query any real data. A high-value, zero-cost upgrade in this phase is wiring it to real Supabase RPCs (`dashboard_metrics`, `low_stock_alerts`, per-product COGS) so it returns actual numbers. No external API needed — just data plumbing. This sets the foundation for Phase 1.7.
 
 ---
 
-### Phase 1.7 — Notifications That Actually Reach You
+### Phase 1.6 — Notifications That Actually Reach You
 
 **Goal:** Get time-sensitive alerts to business owners where they actually are — not on a dashboard they check once a day
 
@@ -203,7 +203,7 @@ Low-stock alerts, unsold batch warnings, and daily summaries already exist in th
 
 ---
 
-### Phase 1.6 — AI Foundation (Model-Agnostic Assistant)
+### Phase 1.7 — AI Foundation (Model-Agnostic Assistant)
 
 **Goal:** Introduce a real LLM-powered assistant without locking into a single provider or API cost structure. Start free, upgrade as revenue allows.
 
@@ -243,7 +243,7 @@ The router selects the tier based on:
 - Task complexity hint (simple Q&A vs. multi-step reasoning)
 - Remaining free quota (fall back gracefully if rate-limited)
 
-**What the assistant can do (Phase 1.6 scope)**
+**What the assistant can do (Phase 1.7 scope)**
 
 - Answer questions about real business data: "What was my profit this week?", "Which product has the best margin?", "Am I running low on anything?"
 - Explain financial metrics in plain language ("What does COGS mean for my bakery?")
@@ -890,13 +890,13 @@ Phase 3.7 and 3.8 introduced display-currency conversion for the owner console a
 
 ### Phase 7 — Intelligence, MCP, Agents & Full AI Upgrade
 
-**Goal:** Make Operbase operable by humans *and* by AI systems — MCP surface, autonomous agents, and an upgrade of the Phase 1.6 assistant to full mutating / agentic capability. This is also where the multi-model router introduced in Phase 1.6 is extended to support more powerful models as premium plan features.
+**Goal:** Make Operbase operable by humans *and* by AI systems — MCP surface, autonomous agents, and an upgrade of the Phase 1.7 assistant to full mutating / agentic capability. This is also where the multi-model router introduced in Phase 1.7 is extended to support more powerful models as premium plan features.
 
-**Relationship to Phase 1.6**
+**Relationship to Phase 1.7**
 
-Phase 1.6 introduced the AI foundation: Vercel AI SDK, the model router, Groq free tier, and read-only tool calls to Supabase RPCs. Phase 7 builds directly on top of that layer — it does not replace it. The upgrade path is:
+Phase 1.7 introduced the AI foundation: Vercel AI SDK, the model router, Groq free tier, and read-only tool calls to Supabase RPCs. Phase 7 builds directly on top of that layer — it does not replace it. The upgrade path is:
 
-| Phase 1.6 (foundation) | Phase 7 (full capability) |
+| Phase 1.7 (foundation) | Phase 7 (full capability) |
 |------------------------|---------------------------|
 | Read-only tool calls (dashboard metrics, stock alerts) | Mutating tool calls (log sale, create batch, restock item) |
 | In-app chat only | MCP surface (external clients: Cursor, Claude Desktop, etc.) |
@@ -908,15 +908,15 @@ Phase 1.6 introduced the AI foundation: Vercel AI SDK, the model router, Groq fr
 
 - One well-designed **Operbase MCP server** (tools scoped by `business_id` + auth) lets **any** MCP host attach: IDEs, desktop assistants, mobile experiments, partner integrations.
 - **Agents** (multi-step automation, scheduled jobs, “record this sale from voice note”) should call the **same** underlying contracts as MCP — avoid duplicating business logic in prompt-only paths.
-- **In-app chatbot** (already live from Phase 1.6) gets upgraded to use the same tool backend as MCP — not a separate shadow API.
+- **In-app chatbot** (already live from Phase 1.7) gets upgraded to use the same tool backend as MCP — not a separate shadow API.
 
 **Features (ordered roughly by dependency)**
 
 | Track | What | Notes |
 |--------|------|--------|
-| **Mutating tools** | Extend the Phase 1.6 tool layer with write operations: log sale, create batch, restock item, dispose units | Behind explicit human confirmation UI — never silent mutations |
+| **Mutating tools** | Extend the Phase 1.7 tool layer with write operations: log sale, create batch, restock item, dispose units | Behind explicit human confirmation UI — never silent mutations |
 | **MCP server** | Expose the same tools (read + mutating) as an MCP server with OAuth / API key auth | Read-only tools ship first; mutating tools behind confirmation patterns |
-| **Model router upgrade** | Route Pro plan users to `claude-sonnet-4-6`; add task-type routing (simple Q&A → cheap model; multi-step agent → capable model) | Builds on Phase 1.6 router — same interface, new tier entries |
+| **Model router upgrade** | Route Pro plan users to `claude-sonnet-4-6`; add task-type routing (simple Q&A → cheap model; multi-step agent → capable model) | Builds on Phase 1.7 router — same interface, new tier entries |
 | **Agents** | Orchestrated flows: weekly profit summary, low-stock digest, “close the day” checklist | Requires reliable tool contracts + audit logging |
 | **Background tasks** | Scheduled agent runs (daily summary email, weekly margin report) | Requires server-side agent loop, not just a chat endpoint |
 | **Insights narratives** | AI-generated profit/cost narratives, anomaly detection, forward-looking suggestions | Consumes existing analytics RPCs + event data from `analytics_events` |
@@ -927,7 +927,7 @@ Phase 1.6 introduced the AI foundation: Vercel AI SDK, the model router, Groq fr
 - Tool invocation logs (which tools, which business, success/failure) — for safety and billing later
 - Model usage per plan tier — validates cost assumptions for Phase 8 pricing
 
-**Status:** Not started. **Scope guard:** do not ship MCP/agents/mutating tools until Phase 1–3 foundations are stable and auth + tenant boundaries are non-negotiable in the tool layer. Phase 1.6 must be live and validated first.
+**Status:** Not started. **Scope guard:** do not ship MCP/agents/mutating tools until Phase 1–3 foundations are stable and auth + tenant boundaries are non-negotiable in the tool layer. Phase 1.7 must be live and validated first.
 
 ---
 
@@ -1271,7 +1271,7 @@ The current stack (Next.js + Supabase + Vercel) is the right choice now: low set
 
 #### AI providers — already handled
 
-The multi-model abstraction (Vercel AI SDK, Phase 1.6) means providers can be swapped with a one-line config change. No lock-in by design. See Phase 1.6 and Phase 7.
+The multi-model abstraction (Vercel AI SDK, Phase 1.7) means providers can be swapped with a one-line config change. No lock-in by design. See Phase 1.7 and Phase 7.
 
 ---
 
@@ -1370,7 +1370,7 @@ This section must be completed **before any paid plan is offered or user data is
 | Hosting cost spike | Vercel team Pro when revenue justifies; one plan covers all projects under the org |
 | Customer network becomes a data trust problem | Be transparent from day one that operational data informs matching; never sell raw data; success fee model keeps incentives aligned |
 | MCP / agents exfiltrate or corrupt tenant data | Ship read-only tools first; mutating tools behind explicit human confirmation; audit logs; same RLS rules as the app — never bypass `business_id` |
-| AI API cost before revenue exists | Multi-model abstraction (Phase 1.6): free plan uses Groq free tier (£0 cost); paid plan subscribers fund Claude API usage via subscription revenue. Rate-limit free tier server-side. Cost scales with paying users, not with total signups. |
+| AI API cost before revenue exists | Multi-model abstraction (Phase 1.7): free plan uses Groq free tier (£0 cost); paid plan subscribers fund Claude API usage via subscription revenue. Rate-limit free tier server-side. Cost scales with paying users, not with total signups. |
 | Vendor lock-in to a single AI provider | Vercel AI SDK as the abstraction layer — swapping providers is a config change, not a rewrite. Never call a provider SDK directly from assistant logic. |
 | Mobile experience inconsistent across devices | PWA approach (Phase 3.6) reuses existing Next.js codebase; test on iOS Safari and Android Chrome specifically. Bottom nav + safe area insets handle the key edge cases. |
 
