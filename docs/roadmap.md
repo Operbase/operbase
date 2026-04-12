@@ -64,8 +64,10 @@ The strategy is not to build a dedicated vertical per business type. The core en
 | Structure | How Operbase handles it |
 |-----------|------------------------|
 | Single business, single location | Default — one business, no branches |
-| Single business, multiple branches (e.g. 5 restaurant locations) | Phase 3.7 — branches under one entity; consolidated + per-branch financials |
-| Multiple businesses, same owner (e.g. bakery + restaurant) | Phase 3.8 — owner console; one login, business switcher, cross-business roll-up |
+| Single business, multiple branches, same country | Phase 3.7 — branches under one entity; consolidated + per-branch financials in one currency |
+| Single business, branches across different countries | Phase 3.7 + Phase 6 — branches declare their own country/currency; entity view consolidates at locked FX rates |
+| Multiple businesses, same owner, same country | Phase 3.8 — owner console; business switcher; cross-business roll-up in shared currency |
+| Multiple businesses, same owner, different countries | Phase 3.8 + Phase 6 — each business in its own currency; owner console converts to declared display currency |
 | Virtual (online only) | Phase 3.5 business_mode flag drives UX language; ecommerce storefront is opt-in, not assumed |
 | Physical (in-store) | Default mode; ecommerce opt-in if they want an online ordering page |
 | Both (store + online orders) | Phase 3.5 + Phase 5; walk-in and online sales tracked in same profit engine |
@@ -151,6 +153,53 @@ The strategy is not to build a dedicated vertical per business type. The core en
 
 **Assistant upgrade (no API key required):**
 The existing `business-assistant.tsx` component matches keywords and returns hardcoded responses — it does not query any real data. A high-value, zero-cost upgrade in this phase is wiring it to real Supabase RPCs (`dashboard_metrics`, `low_stock_alerts`, per-product COGS) so it returns actual numbers. No external API needed — just data plumbing. This sets the foundation for Phase 1.6.
+
+---
+
+### Phase 1.7 — Notifications That Actually Reach You
+
+**Goal:** Get time-sensitive alerts to business owners where they actually are — not on a dashboard they check once a day
+
+**The problem it solves:**
+
+Low-stock alerts, unsold batch warnings, and daily summaries already exist in the app. But a baker is in a kitchen at 6am, a food vendor is at a market, a caterer is at an event. The app notification is invisible to them in those moments. In the primary target markets (Nigeria, West Africa), **WhatsApp is the dominant communication channel** — it is more reliable, more trusted, and more immediately seen than email, push, or SMS.
+
+**Notification channels (in priority order):**
+
+| Channel | Priority | Why |
+|---------|----------|-----|
+| **WhatsApp** | Primary | Dominant channel in target markets; high open rate; already where the business owner operates |
+| **Push (PWA)** | Secondary | Works once Phase 3.6 PWA is installed; native feel on mobile |
+| **Email** | Tertiary | Universal fallback; useful for daily/weekly summaries |
+| **SMS** | Last resort | Cost per message; use only for critical alerts if WhatsApp and push fail |
+
+**What gets notified:**
+
+| Alert | When | Channel |
+|-------|------|---------|
+| Low stock | When an item drops below threshold | WhatsApp / push |
+| Unsold batch reminder | End of day if batches with remaining units are ageing | WhatsApp |
+| Daily summary | Each morning: yesterday's profit, what's left, what to watch | WhatsApp / email |
+| Order received | When a customer places an order (Phase 5) | WhatsApp / push |
+| Weekly performance | Monday morning: last week vs. the week before | Email / WhatsApp |
+| Staff logged something unusual | Large disposal, unexpected stock deduction (Phase 2 multi-user) | WhatsApp to owner |
+
+**WhatsApp integration approach:**
+
+- Use **WhatsApp Business API** (via a provider like Twilio, 360Dialog, or Meta directly)
+- At onboarding: "Where should we send alerts?" → enter WhatsApp number (pre-filled from signup if available)
+- Message templates must be pre-approved by Meta — keep them factual and short ("You're low on Flour — 2kg left. You usually use 5kg per day.")
+- All notifications are opt-in per channel and per alert type — owner configures in Settings
+- Free plan: daily summary + critical low-stock only. Starter+: full alert suite.
+
+**Design principles:**
+
+- Never send a notification the business owner didn't ask for — all channels opted in, not on by default
+- Notifications must be actionable or informational — not vanity ("Your dashboard has been updated")
+- The message must make sense without opening the app — include the number, the item, the context
+- WhatsApp messages must feel human, not automated — short, direct, no corporate jargon
+
+**Status:** Not started. WhatsApp Business API requires Meta approval for templates — start this process early, it can take days to weeks. The alert threshold logic already exists in the DB (`low_stock_alerts` RPC). The missing piece is the delivery layer and the notification preferences UI.
 
 ---
 
@@ -251,6 +300,115 @@ This means the AI feature funds itself: only users who pay for it trigger a cost
 - Role usage  
 
 **Status:** Schema scaffolded (`roles`, `permissions`, `role_permissions`, `invites`). No UI.
+
+---
+
+### Phase 2.5 — Customer Intelligence
+
+**Goal:** Make the business owner's existing customers visible — who they are, how often they buy, and when they stop
+
+**The problem it solves:**
+
+Operbase currently knows everything about what a business makes and sells — but almost nothing about who is buying. A `customers` table exists in the schema but it is barely used. For most small businesses, repeat customers are the business. Losing one regular without noticing is losing reliable revenue. Gaining one new regular is more valuable than a one-off sale.
+
+This is not CRM. It does not require complex pipelines or sales funnels. It is basic visibility: who are your people, and are they still coming back?
+
+**What to build:**
+
+| Feature | Description |
+|---------|-------------|
+| **Customer list** | Every customer who has bought from you. Name, contact (phone/WhatsApp), first purchase, last purchase, total spent, total orders. |
+| **Customer profile** | Click any customer — see their full purchase history, favourite products, average order value. |
+| **Repeat vs. new split** | On the dashboard and Insights: what % of this week's revenue came from repeat customers vs. first-time buyers? |
+| **Churn signal** | Flag customers who haven't bought in longer than their usual gap. "Sarah usually buys every 2 weeks — it's been 5 weeks." Surface this as an insight card. |
+| **Top customers** | Which 5 customers generate the most revenue? This often surprises owners. |
+| **Customer notes** | Free-text notes on a customer — "prefers oat bread", "WhatsApp only", "bulk order Fridays". |
+
+**What does NOT belong here:**
+
+- Mass marketing or campaigns — that is Phase 9
+- Loyalty programmes — out of scope for this phase
+- Automated messaging to customers — notification is outbound to the owner (Phase 1.7), not to customers yet
+
+**Data model:**
+
+The `customers` table already exists. Additions needed:
+- `phone` / `whatsapp_number` on customers (currently may be missing)
+- `customer_segments` view: new (1 purchase), regular (2–9 purchases), loyal (10+)
+- No new tables — the purchase history is already in `sales.customer_id`
+
+**Why this comes before Phase 3:**
+
+Customer data is operational, not a platform feature. A single-location bakery needs to know its regulars just as much as a multi-branch restaurant. This belongs at the single-business level, alongside multi-user (Phase 2). It also seeds Phase 9 (customer acquisition network) correctly — you cannot reason about acquiring customers if you cannot distinguish new from repeat.
+
+**Billing:** Basic customer list — free. Churn signals and segment analytics — Starter+.
+
+**Status:** Not started. `customers` table and `sales.customer_id` FK already exist.
+
+---
+
+### Phase 2.6 — Planning & Forward-Looking
+
+**Goal:** Help the business owner decide what to do next — not just record what already happened
+
+**The problem it solves:**
+
+Every feature in Operbase today is backwards-looking. It tells you what you made, what you sold, what it cost. But the most valuable question a small business owner asks every morning is: **"How much should I make today?"**
+
+They already have the answer sitting in their data — their sales history shows exactly what they sell on a Tuesday, how much demand they had last week, how many items are left from yesterday. The app just never uses it. This phase makes Operbase forward-facing.
+
+**Features:**
+
+**1. Production suggestion ("What to make today")**
+
+A daily recommendation based on:
+- Day-of-week sales pattern (your Saturdays sell 3× your Tuesdays)
+- Items remaining from yesterday (don't over-produce what's not moving)
+- Recent sales velocity (trending up or down?)
+- Any pre-orders for today (see feature 3 below)
+
+Shown as a simple prompt on the home dashboard: *"Based on your last 4 Saturdays, you typically sell 40 loaves. You have 8 left. Consider making 35 today."*
+
+Rule-based to start (like insight cards). Phase 7 AI takes it over with proper reasoning.
+
+**2. Demand patterns**
+
+A dedicated view showing:
+- Sales by day of week across the last 4–8 weeks
+- Which products sell most on which days
+- Week-on-week trend per product
+
+This is the data the production suggestion uses — but surfaced so the owner can see it themselves and build their own intuition.
+
+**3. Pre-orders (before ecommerce)**
+
+Many small business owners take pre-orders via WhatsApp, phone, or in person — days before delivery. Right now there is nowhere to log these in Operbase. A pre-order is not a sale yet — it is a future demand signal.
+
+Add a simple pre-order log:
+- Product, quantity, customer, date needed, any deposit paid
+- Pre-orders feed into the "what to make today" calculation
+- When fulfilled, convert to a sale with one tap
+- Not a full order management system — just a log that the production planner can see
+
+**4. "Close the day" prompt**
+
+At end of day (time-based, or triggered manually), prompt the owner:
+- How many did you sell today? (pre-fill from logs)
+- Anything you gave away or disposed of? (quick log)
+- What's left?
+
+Takes 30 seconds. Keeps data accurate without needing them to be diligent throughout the day.
+
+**Design principles:**
+
+- Suggestions are always suggestions — never instructions. The owner knows their business. Operbase informs, not dictates.
+- Start rule-based; Phase 7 AI upgrades the reasoning
+- Pre-orders are lightweight — not a full booking system. Keep it as simple as a note with a date.
+- Day patterns require at least 3–4 weeks of data to be meaningful — show empty state guidance until then
+
+**Billing:** Basic production suggestion and demand view — free. Pre-orders and advanced pattern analytics — Starter+.
+
+**Status:** Not started. Requires 3–4 weeks of real sales data per business to be meaningful — the foundation is being built now as businesses log sales in Phase 1. The earlier businesses start logging, the better the patterns will be when this ships.
 
 ---
 
@@ -387,10 +545,32 @@ Most small businesses with "branches" will use the first pattern. The second pat
 
 **Data model changes:**
 
-- Add `branches` table: `id, business_id, name, address, timezone, is_active`
+- Add `branches` table: `id, business_id, name, address, country, currency, timezone, is_active`
+- `country` and `currency` on branches are nullable — if null, they inherit from the parent `business_settings`. This means same-country branches need no extra config; different-country branches declare their own.
 - All transactional tables (`batches`, `sales`, `stock_entries`, `purchase_lots`) get `branch_id` (nullable — NULL means "main / only branch")
 - RLS stays on `business_id` — branches are a sub-scope within a business
 - When `branch_id` is NULL, it falls through to "entity level" — backwards compatible, no migration needed for existing single-branch businesses
+
+**Multi-country branches:**
+
+A restaurant group might have branches in Lagos, London, and Dubai. This is not just a timezone or language difference — it involves:
+
+| Concern | How it's handled |
+|---------|-----------------|
+| **Different currencies** | Each branch stores its transactions in its own currency. Financial consolidation (entity view) requires conversion to the owner's base currency — see "Cross-currency consolidation" below. |
+| **Different tax rules** | Each branch country has its own VAT/sales tax rate and filing requirements. Phase 6 (Globalisation) adds the full tax engine on top of the branch's `country` field. Phase 3.7 stores the country — Phase 6 makes it compute-aware. |
+| **Different payment gateways** | A Lagos branch uses Paystack. A London branch uses Stripe. Gateway configuration (Phase 4) is per-branch, not per-business. |
+| **Data residency** | EU law requires that EU customer data stays in the EU. A business with a London branch serving EU customers must ensure that branch's data is hosted within the EU. This is an infrastructure concern (see Section 7) — the schema supports it by flagging branch country. |
+| **Staff access scoped to branch** | A branch manager in Lagos should not see London branch financials. Role permissions (Phase 2) must be extendable to branch-level scope: `user can manage branch X but not branch Y`. |
+
+**Cross-currency consolidation (entity view):**
+
+When a business has branches in different currencies, the entity-level dashboard must convert all figures into a single base currency (the owner's declared home currency). 
+
+- For the dashboard (real-time): use the most recent FX rate, clearly labelled ("converted at today's rate")
+- For period reports (Phase 4.5): lock the rate at the time of the transaction — a sale in Lagos in January should be converted at January's rate, not today's. This matters for accurate P&L over time.
+- FX rates: fetched from a public API (e.g. Open Exchange Rates, or exchangerate.host which is free) and cached daily. Never calculated in the browser — always server-side.
+- The owner always sees figures labelled with the source currency and the conversion: "₦850,000 (≈ £430 at ₦1,977/£)"
 
 **What branch consolidation gives you:**
 
@@ -442,14 +622,27 @@ A person might run a bakery and a restaurant. Or they might own the same bakery 
 | **Same-vertical duplication** | If you open a second bakery, "start from a template" — pre-fill the product catalog and stock items from your first business. Saves setup time. |
 | **Different-vertical businesses** | Fully independent — no shared data, no shared catalog. The vertical abstraction (Phase 3.5) handles the language correctly per business. |
 
+**Multi-country businesses:**
+
+An owner might have a bakery registered in Nigeria and a catering company registered in the UK. These are legally separate entities in different countries with different currencies, tax systems, and compliance obligations.
+
+| Concern | How it's handled |
+|---------|-----------------|
+| **Different currencies per business** | Each business has its own `business_settings.currency`. There is no assumption that all a user's businesses share a currency. |
+| **Cross-business roll-up currency** | When the owner views consolidated revenue across all their businesses, they choose a display currency (their "home" currency). All figures are converted at current rate, labelled clearly. This is a display layer — underlying records stay in each business's own currency. |
+| **Different tax obligations** | Each business is subject to its own country's tax rules. Phase 6 handles per-business tax configuration independently. There is no blending of tax across businesses. |
+| **Data residency per business** | A business registered in the EU must have its data hosted in the EU regardless of where the owner is. This is an infrastructure flag per business — `business_settings.data_region` — that the hosting layer uses to route to the correct database region. Phase 6 infrastructure work addresses this. |
+| **Different gateway connections** | Each business connects its own payment gateways (Phase 4). A Nigerian business uses Paystack; a UK business uses Stripe. There is no cross-business payment sharing. |
+
 **Design principles:**
 
 - Owning multiple businesses does not merge their data — each business stays fully isolated (`business_id` RLS is inviolable)
 - The owner console is a read-only summary surface — it does not push data between businesses
 - A user can be an owner (full access) of one business and a staff member (limited access) of another — roles are per `user_businesses` row, not global
+- Cross-business roll-up is always shown in a declared display currency, with source currency labelled per business
 - Free plan: up to 1 business. Starter: up to 3. Pro: unlimited. (Phase 8 billing enforces this.)
 
-**Status:** Not started. `user_businesses` join table already supports the data model. The missing piece is the owner console UI and the switcher UX. Depends on Phase 3 auth being stable.
+**Status:** Not started. `user_businesses` join table already supports the data model. The missing piece is the owner console UI, the switcher UX, and the display-currency conversion layer for cross-business roll-up. Depends on Phase 3 auth being stable.
 
 ---
 
@@ -633,30 +826,65 @@ The Insights page (Phase 1) already gives visual summaries. Reporting is differe
 
 ### Phase 6 — Globalisation Layer
 
-**Goal:** Make Operbase work correctly regardless of country of operation  
+**Goal:** Make every part of Operbase — tax, currency, compliance, data residency — work correctly for any country, any currency, and any combination of both
 
-**Features:**
+**What the earlier phases set up:**
 
-- Country of operation set per business (already have `timezone`, `currency`, `locale` in `business_settings`)  
-- Tax engine — calculate tax per transaction based on business country + business type (VAT, GST, sales tax, etc.)  
-- Tax filing support — generate tax-period summaries formatted to local filing requirements  
-- Multi-country businesses — branches (Phase 3.7) may operate in different countries with different currencies and tax rules; Phase 6 adds the currency conversion and tax layer on top of the existing branch model  
-- Localised number/date/currency formatting per business locale  
-- Globalization-aware invoicing — invoice layout, tax line display, and legal fields vary by country  
+By Phase 6, the data model is already country-aware at both business and branch level:
+- Each business has `country`, `currency`, `timezone`, `locale` in `business_settings`
+- Each branch can declare its own `country` and `currency` (or inherit from the business)
+- All transactions store their amounts in the currency of the business/branch at the time — no currency ambiguity in the raw data
 
-**Design principles:**
+Phase 6 is the compute and compliance layer that activates on top of that structure.
 
-- Tax is always additive, never baked into core price fields — all existing `revenue`, `cogs`, `gross_profit` columns stay tax-exclusive; tax is a separate layer on top  
-- Country + business-type matrix drives which tax rules apply (e.g. a bakery in Nigeria uses FIRS VAT 7.5%; a bakery in the UK uses HMRC VAT 20% with potential zero-rating on certain baked goods)  
-- No hard-coded country logic in the app — tax rules live in a configurable table, not code  
+**Tax engine:**
+
+- Calculate tax per transaction based on the business's (or branch's) country and business type
+- Country + business-type matrix drives tax rates — e.g.:
+  - Nigeria (FIRS): VAT 7.5% on most goods and services
+  - UK (HMRC): VAT 20%, with zero-rating on many food items (a bakery selling bread = 0%, selling hot food = 20%)
+  - EU: varies by country and product category
+- Tax rules live in a configurable DB table — not hard-coded. Adding a new country = adding rows, not code.
+- Tax is always additive — existing `revenue`, `cogs`, `gross_profit` columns remain tax-exclusive. Tax is a separate layer on top and never contaminates the core profit engine.
+- For a business in Nigeria: the tax line is computed at time of sale. For a UK bakery: the system prompts setup of the correct rate at onboarding.
+
+**Tax filing support:**
+
+- Generate a tax-period summary (monthly or quarterly depending on country) formatted for the relevant authority
+- Output as PDF (Phase 4.5 infrastructure) — ready to hand to an accountant or submit directly
+- Compliance filing history stored per business — not just for reporting but as an audit trail
+
+**Cross-currency consolidation (the full version):**
+
+Phase 3.7 and 3.8 introduced display-currency conversion for the owner console and branch view. Phase 6 makes it rigorous:
+
+- **Transaction-time FX rate locking**: every sale, every stock purchase, every cost entry stores the FX rate at the time of the transaction. A sale in Lagos in January is permanently associated with the January ₦/£ rate. Period reports use locked rates, not today's rate.
+- **FX rate source**: fetched daily from a public API (Open Exchange Rates or equivalent), cached in the DB — one source of truth, not per-request
+- **Consolidated P&L**: for multi-currency businesses, the P&L report for a period converts all transactions at their locked rate and presents a true consolidated figure — not an approximation
+- **Currency gain/loss tracking**: if a business holds stock purchased in one currency and sells in another, the FX movement is tracked as a line item — not silently absorbed
+
+**Data residency:**
+
+- Add `data_region` to `business_settings` (e.g. `eu-west`, `af-south`, `us-east`)
+- Infrastructure routes each business's DB connections to the correct region
+- EU businesses: data must stay in the EU (GDPR Article 44)
+- Nigerian businesses: NDPR requires data of Nigerian residents to be stored in Nigeria or in countries with adequate protection
+- This is an infrastructure concern — the schema flags it, the hosting layer enforces it
+- Free plan: shared region (no guarantee). Starter+: region selection. Enterprise: dedicated region.
+
+**Localisation:**
+
+- Number, date, and currency formatting per `locale` — already partially in place
+- Invoicing (Phase 4) becomes locale-aware: invoice layout, tax line labelling, legal entity fields, and footer text vary by country
+- Language localisation (translated UI) is out of scope for this phase — English only until user demand justifies translation
 
 **Data focus:**
 
-- Tax collected per period  
-- Cross-location revenue consolidation  
-- Compliance filing history  
+- Tax collected and filed per period per business
+- FX rate accuracy vs. actual bank rates (gap analysis)
+- Data residency compliance audit log
 
-**Status:** Not started. Currency at onboarding is the first step (Phase 1 ✅). Full tax engine is Phase 6.
+**Status:** Not started. Country/currency at onboarding (Phase 1 ✅) and country-aware branch schema (Phase 3.7) are prerequisites. FX rate infrastructure must be built before any cross-currency consolidation features ship.
 
 ---
 
