@@ -652,38 +652,89 @@ Phase 1.6 introduced the AI foundation: Vercel AI SDK, the model router, Groq fr
 
 ### Phase 8 — Platform Billing
 
-**Goal:** Charge businesses based on access to features  
+**Goal:** Sustainable revenue model that scales with how much value a business gets from Operbase — not a paywall on the basics
 
-**Features:**
+**Core principle: free should be genuinely useful**
 
-- Plan tiers (Free, Starter, Pro, Enterprise) — already seeded as `businesses.plan` column  
-- Feature gating — `business_feature_flags` table (Phase 5 schema) drives which features are unlocked per plan  
-- Usage-based limits — e.g. number of users, locations, API calls  
-- Self-serve upgrade/downgrade inside the app  
-- Payment gateway integration for subscription billing  
+The free tier must cover everything a small business needs to track their day-to-day operations. If someone can run their bakery on the free tier and never feel the ceiling, they will stay, tell others, and upgrade when they grow. Gating core functionality would undermine that.
 
-**Design principles:**
+---
 
-- Never gate Phase 1 core features (stock, production, sales) for existing users — grandfather them
-- Advanced features (multi-location, tax filing, invoice generation, ecommerce) are paid-tier
-- **AI assistant is a paid-tier feature** — free plan gets rate-limited Groq access (Phase 1.6); Starter/Pro plans unlock higher quotas and more capable models (Claude Haiku → Sonnet). API costs are covered by subscription revenue — the AI feature is self-funding.
-- Billing is per business, not per user seat (at least initially)  
+**What is always free (no plan required)**
 
-**Fee models — research (not a committed design)**
+| Feature | Why free |
+|---------|----------|
+| Stock management | Core — reason they signed up |
+| Production tracking | Core |
+| Sales logging | Core |
+| Dashboard (today's profit, alerts) | Core |
+| Insights (basic) | Core — knowing margin is the point |
+| 1 business | Base unit of the product |
+| 1 branch / location | Default for single-location businesses |
+| Up to 3 staff accounts | Enough for a small team without multi-user overhead |
+| AI assistant (rate-limited) | Free tier uses Groq — zero API cost to Operbase |
 
-Several monetisation shapes are on the table; **none is chosen**. Validate with real operators before locking schema or UX:
+---
 
-| Idea | Question to answer |
-|------|---------------------|
-| **Platform / take rate** | Small % on payments processed through Operbase-managed gateways (already noted in Phase 4) — aligns when we facilitate money movement |
-| **Per-user (seat) fee** | Makes sense when Phase 2 multi-user is mature and larger teams drive cost |
-| **AI assistant quota tier** | Free plan: limited Groq queries/day. Starter: higher quota + Claude Haiku. Pro: unlimited + Claude Sonnet + agent features. Subscription revenue directly funds API costs — no cross-subsidisation. |
-| **Product-combination or bundle fee** | Charge differently when certain *combinations* of modules/features are enabled (e.g. inventory + ecommerce + AI) — needs clear packaging, not ad-hoc SQL |
-| **User-defined “fee flow”** | Let a business configure rules like “when products A+B appear on an order, apply fee X” — powerful for franchises/marketplaces but high complexity; might overlap with tax/discount engines (Phase 6) |
+**Subscription features (monthly or yearly billing)**
 
-**Open concern:** A custom fee-flow builder can become a second product (rules engine, audits, disputes). Prefer **one simple primary model** (e.g. tier + optional take rate) until revenue proves the need for composable fees.
+These cost Operbase ongoing resource — hosting, compute, AI tokens — so they recur with the service.
 
-**Status:** Not started. `businesses.plan` column and `feature_flags`/`business_feature_flags` tables are schema-ready.
+| Feature | Tier | Notes |
+|---------|------|-------|
+| Additional businesses (2nd, 3rd…) | Starter+ | Each business = ongoing storage + compute |
+| Multi-branch (more than 1 branch) | Starter+ | Each branch = ongoing query + storage cost |
+| More staff accounts (beyond 3) | Starter+ | Per-seat or per-tier depending on validation |
+| AI assistant — higher quota + smarter model | Starter → Pro | Groq (free) → Claude Haiku → Sonnet; API cost covered by subscription |
+| Advanced insights (cross-period, branch comparison) | Starter+ | Heavier DB queries ongoing |
+| Ecommerce storefront | Starter+ | Public URL hosting, order handling, ongoing |
+| Tax engine (Phase 6) | Pro+ | Country-specific rule maintenance, ongoing compliance |
+| Ecommerce on multiple branches | Pro+ | Each branch storefront = separate hosting + order pipeline |
+
+**Yearly billing discount:** Offer ~2 months free on annual plans. Businesses that pay yearly are sticky — they've committed to the tool for the year.
+
+---
+
+**One-off payments (unlock once, not a recurring charge)**
+
+These are discrete unlocks with low ongoing cost — there's no reason to charge every month for them.
+
+| Feature | One-off charge | Notes |
+|---------|---------------|-------|
+| Custom domain (CNAME on storefront) | One-off setup fee | DNS config is a one-time action; no ongoing cost to Operbase |
+| PDF / invoice generation | One-off unlock | Once enabled, the feature is theirs — generating PDFs is cheap |
+| Assisted onboarding | One-off service fee | Hands-on setup help from the Operbase team — not automated |
+| “Start from template” (clone a business catalog) | One-off | Useful for franchises opening a 2nd location |
+
+---
+
+**Take-rate (no upfront charge — % on transactions)**
+
+Operbase earns when the business earns. Aligned incentives.
+
+| Mechanism | Rate | Applies when |
+|-----------|------|-------------|
+| Ecommerce orders via Operbase storefront | Small % per order | Business processes payments through Operbase-managed gateway (Phase 4 Mode 2) |
+| Customer acquisition referrals (Phase 9) | Success fee per referred customer | Only on customers demonstrably sourced by Operbase network |
+
+Take-rate only applies when Operbase-managed gateways are used. A business using their own Paystack/Flutterwave keys (self-serve mode) pays no take rate — only their subscription if applicable.
+
+---
+
+**Plan shape (illustrative — validate before locking)**
+
+| Plan | What you get | Billing |
+|------|-------------|---------|
+| **Free** | 1 business, 1 branch, 3 staff, core operations, rate-limited AI | Free |
+| **Starter** | Up to 3 businesses, up to 3 branches per business, more staff, ecommerce, AI upgrade | Monthly or yearly |
+| **Pro** | Unlimited businesses + branches, full AI (Claude Sonnet), advanced insights, tax engine | Monthly or yearly |
+| **Enterprise** | Custom limits, dedicated support, API access, custom domain, assisted onboarding | Yearly + one-off setup |
+
+---
+
+**Schema:** `businesses.plan` column and `feature_flags`/`business_feature_flags` tables are already schema-ready. One-off unlocks are stored as permanent flags on `business_feature_flags` — not a recurring check.
+
+**Status:** Not started. Validate the plan shape with real operators before locking pricing. The take-rate model (Phase 4 Mode 2 gateways) can ship independently of subscription billing — it requires no billing engine, just gateway revenue sharing.
 
 ---
 
