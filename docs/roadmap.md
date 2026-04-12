@@ -513,9 +513,17 @@ This model positions Operbase as a payment facilitator and enables a transaction
 
 Every business on Operbase already has a product catalog with names, variants, add-ons, and sale prices (Phase 1). That is everything needed to generate a public ordering page. The ecommerce layer is not a separate feature — it is the product catalog made public-facing, with a URL and a checkout.
 
+**Ecommerce setup flow:**
+
+When a business owner turns on ecommerce, they go through a short setup:
+1. **Storefront details** — confirm business name, slug, and cover image (pre-filled from onboarding)
+2. **Payment method** — choose how customers pay: bank transfer, cash on delivery, or connect a gateway (Paystack / Flutterwave). This is where they configure payment for the first time if they haven't already, or select from already-connected gateways (Phase 4). A business can offer multiple methods and the customer picks at checkout.
+3. **Fulfilment** — pickup at store, delivery to address, or both (branch picker appears here if they have branches)
+4. **Go live** — storefront is live at `operbase.store/{business-slug}` or a custom domain
+
 **Auto-built storefronts:**
 
-- When a business enables ecommerce (one toggle in Settings), their storefront is live instantly at `operbase.store/{business-slug}` or a custom domain
+- When a business enables ecommerce, their storefront is live instantly after the short setup above
 - The storefront is generated from the existing `products` + `product_variants` + `product_addons` tables — no manual rebuild
 - Brand color, logo, and business name from onboarding flow directly into the storefront — it looks like their brand, not a generic marketplace
 - If they update a product name or price in Operbase, the storefront updates automatically
