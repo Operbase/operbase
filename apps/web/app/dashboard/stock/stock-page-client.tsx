@@ -348,6 +348,30 @@ export function StockPageClient({
         const { error } = await supabase.from('items').update(payload).eq('id', editingItem.id)
         if (error) throw error
         toast.success('Saved!')
+        // Immediately reflect edits in local state so the next openEdit call
+        // reads the new values without waiting for fetchItems to complete.
+        setItems((prev) =>
+          prev.map((i) =>
+            i.id !== editingItem.id
+              ? i
+              : {
+                  ...i,
+                  name: payload.name as string,
+                  purchase_unit_id: payload.purchase_unit_id as string | null,
+                  usage_unit_id: payload.usage_unit_id as string | null,
+                  purchase_unit_name:
+                    units.find((u) => u.id === payload.purchase_unit_id)?.name ??
+                    i.purchase_unit_name,
+                  usage_unit_name:
+                    units.find((u) => u.id === payload.usage_unit_id)?.name ??
+                    i.usage_unit_name,
+                  conversion_ratio: payload.conversion_ratio as number,
+                  cost_per_unit: payload.cost_per_unit as number,
+                  low_stock_threshold: payload.low_stock_threshold as number | null,
+                  notes: payload.notes as string | null,
+                }
+          )
+        )
       } else {
         const { data: newItem, error } = await supabase.from('items').insert(payload).select().single()
         if (error) throw error
