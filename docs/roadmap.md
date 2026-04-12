@@ -22,6 +22,8 @@ From inside `docs/`, the same file is [`roadmap.md`](./roadmap.md).
 
 Operbase is a simple business operating system for small businesses to track operations, understand costs, and know real profit with clarity.
 
+It is built for business owners — not just single-location sole traders. An owner might run the same business across five branches, or own a bakery and a restaurant, or operate entirely online. Operbase is designed to grow with them: one login, one platform, whether they have one outlet or many.
+
 The long-term possibility — not a guarantee, but a direction worth building toward — is that Operbase becomes more than a back-office tool. With enough businesses on the platform, Operbase could become the layer that connects them to customers: a network where we help small businesses get found, get orders, and grow. If we reach that point, the data and trust we have built from running their operations puts us in a uniquely credible position to do it.
 
 ---
@@ -56,6 +58,17 @@ The long-term possibility — not a guarantee, but a direction worth building to
 - Retail / Services / Restaurant — vertical-specific language + presets on top of generic (Phase 3.5+)
 
 The strategy is not to build a dedicated vertical per business type. The core engine is universal. Verticals are a config map (labels, presets, empty state copy) layered on top — not separate builds.
+
+**Business structures supported (when fully built):**
+
+| Structure | How Operbase handles it |
+|-----------|------------------------|
+| Single business, single location | Default — one business, no branches |
+| Single business, multiple branches (e.g. 5 restaurant locations) | Phase 3.7 — branches under one entity; consolidated + per-branch financials |
+| Multiple businesses, same owner (e.g. bakery + restaurant) | Phase 3.8 — owner console; one login, business switcher, cross-business roll-up |
+| Virtual (online only) | Phase 3.5 business_mode flag; Phase 5 ecommerce storefront auto-enabled |
+| Physical (in-store) | Default; ecommerce opt-in |
+| Both (store + online orders) | Phase 3.5 + Phase 5; walk-in and online sales tracked in same profit engine |
 
 ### Integrations (exploratory)
 
@@ -260,9 +273,9 @@ This means the AI feature funds itself: only users who pay for it trigger a cost
 
 ---
 
-### Phase 3.5 — Vertical Abstraction Layer
+### Phase 3.5 — Vertical Abstraction + Business Mode Layer
 
-**Goal:** Support any business type without building a separate vertical for each one
+**Goal:** Support any business type without building a separate vertical for each one — and distinguish how a business operates (physical, virtual, or both)
 
 **The problem it solves:**
 
@@ -280,6 +293,16 @@ The bakery vertical is built on a generic data model — items, production runs,
 - Enable Retail + Services in the onboarding business type selector (currently disabled)
 - Any unrecognised `business_type` falls through to the generic config — no code change needed to support a new type at basic level
 
+**Business mode (physical vs virtual)**
+
+Not every business has a physical store. A baker who only takes orders on WhatsApp and delivers is a virtual business. Someone with a shop counter is physical. Many are both.
+
+Add `business_mode: 'physical' | 'virtual' | 'both'` at onboarding (one extra question: "Do you sell in a physical location, online only, or both?"). This drives:
+
+- Ecommerce storefront opt-in at Phase 5: virtual and both-mode businesses default to having a public storefront; physical-only businesses can opt in manually
+- Future UX: virtual businesses see "order link" where physical businesses see "walk-in sale"; both see both
+- This is a config flag, not a schema fork — the same tables serve all modes
+
 **What does NOT change:**
 
 - DB schema — tables are already vertical-agnostic
@@ -290,6 +313,7 @@ The bakery vertical is built on a generic data model — items, production runs,
 
 - Feature usage by business type (which vertical drives most engagement)
 - Activation rate by type (does a retailer complete the same onboarding steps as a bakery?)
+- Split of physical vs virtual vs both — informs ecommerce rollout priority
 
 **Status:** Not started. `business_type` column and onboarding selector exist; non-bakery types are disabled. Estimated effort: 2–3 days once Phase 3 multi-user work is stable.
 
@@ -344,7 +368,90 @@ If mobile usage grows significantly and users need features the PWA cannot deliv
 
 ---
 
-### Phase 4 — Financial Layer
+### Phase 3.7 — Multi-Branch Businesses
+
+**Goal:** Let a single business entity operate across multiple branches — with consolidated financials and per-branch intelligence
+
+**The problem it solves:**
+
+A restaurant owner with 5 locations, or a bakery with a main shop and two market stalls, should not have to run five separate Operbase accounts and mentally add the numbers together. They should see one business, five branches — with the ability to drill down into any one.
+
+**Two structural patterns (both must be supported):**
+
+| Pattern | What it means | When to use |
+|---------|---------------|-------------|
+| **Branches under one entity** | A single `business_id` with multiple branch records. All stock, production, sales are tagged to a branch. Financials roll up to the entity AND show per-branch. | Same legal entity, same owner, different physical locations. |
+| **Separate businesses, same owner** | Each location is its own `business_id` (handled by Phase 3.8 multi-business owner view). The owner console consolidates across them. | Different legal entities, different branding, or the owner wants them treated independently. |
+
+Most small businesses with "branches" will use the first pattern. The second pattern is covered by Phase 3.8.
+
+**Data model changes:**
+
+- Add `branches` table: `id, business_id, name, address, timezone, is_active`
+- All transactional tables (`batches`, `sales`, `stock_entries`, `purchase_lots`) get `branch_id` (nullable — NULL means "main / only branch")
+- RLS stays on `business_id` — branches are a sub-scope within a business
+- When `branch_id` is NULL, it falls through to "entity level" — backwards compatible, no migration needed for existing single-branch businesses
+
+**What branch consolidation gives you:**
+
+- **Entity view (default):** Total revenue, total cost, total profit across all branches for any period
+- **Per-branch view:** Same KPIs filtered to one branch — click any branch to drill in
+- **Comparative view:** Side-by-side: which branch made the most money this week? Which has the highest waste rate? Which is running low on stock?
+- **Branch intelligence (AI Phase 7):** Proactive signals — "Branch B's margin is 15 points lower than Branch A on the same product. Here is why and what to do."
+
+**Low-performing branch detection:**
+
+The app should surface, without being asked:
+- Branch profit vs. entity average (is this branch dragging you down?)
+- Branch waste rate vs. other branches
+- Branch stock turnover (is one branch over-ordering?)
+- Products that sell well at Branch A but not at Branch B — make-more signal
+
+These are rule-based in Phase 3.7 (like the existing insight cards). The AI upgrade in Phase 7 adds narrative and recommendations.
+
+**Onboarding flow for branch setup:**
+
+- At business creation: "Do you operate from one location or multiple?" → Single or Multi
+- Multi: add branch names upfront (can add more later in Settings)
+- Each branch gets a short code (e.g. "MAIN", "IKEJA", "LEKKI") used in the quick log and production forms
+
+**Status:** Not started. Depends on Phase 3 (multi-tenant) being solid. DB schema must add `branches` table and `branch_id` FK on transactional tables before any UI work starts. Migration must be backwards-compatible (NULL branch_id = single branch entity).
+
+---
+
+### Phase 3.8 — Multi-Business Owner Console
+
+**Goal:** Let one person manage multiple businesses — same or different verticals, same or different industries — from a single login with a unified owner-level view
+
+**The problem it solves:**
+
+A person might run a bakery and a restaurant. Or they might own the same bakery franchise in two cities under two different business names. Or one person might be an accountant or advisor managing Operbase accounts on behalf of several small businesses. In all cases, logging in and out to switch businesses is friction. What they need is:
+
+1. A switcher — fast way to jump between businesses (like switching GitHub orgs)
+2. An owner console — a view above any single business: see all businesses at once, spot which is underperforming, manage access
+
+**How this works today:** Already partially true — `user_businesses` is a join table, meaning one user can belong to multiple businesses. What doesn't exist is a UI above the business dashboard that presents all of them.
+
+**What to build:**
+
+| Feature | Description |
+|---------|-------------|
+| **Business switcher** | Dropdown in the sidebar/top bar. Shows all businesses the user belongs to. One click to switch context — no re-login. |
+| **Owner console (home screen before business is selected)** | If a user owns 2+ businesses, the post-login landing is an owner console: all businesses as cards with today's profit, status (active, low stock, unsold items). Click a card to enter that business. |
+| **Cross-business roll-up** (optional, paid tier) | See consolidated revenue + profit across all owned businesses for a period. Not the default view — an explicit "all businesses" toggle. |
+| **Same-vertical duplication** | If you open a second bakery, "start from a template" — pre-fill the product catalog and stock items from your first business. Saves setup time. |
+| **Different-vertical businesses** | Fully independent — no shared data, no shared catalog. The vertical abstraction (Phase 3.5) handles the language correctly per business. |
+
+**Design principles:**
+
+- Owning multiple businesses does not merge their data — each business stays fully isolated (`business_id` RLS is inviolable)
+- The owner console is a read-only summary surface — it does not push data between businesses
+- A user can be an owner (full access) of one business and a staff member (limited access) of another — roles are per `user_businesses` row, not global
+- Free plan: up to 1 business. Starter: up to 3. Pro: unlimited. (Phase 8 billing enforces this.)
+
+**Status:** Not started. `user_businesses` join table already supports the data model. The missing piece is the owner console UI and the switcher UX. Depends on Phase 3 auth being stable.
+
+---
 
 **Goal:** Enable transactions and document generation  
 
@@ -400,19 +507,60 @@ This model positions Operbase as a payment facilitator and enables a transaction
 
 ### Phase 5 — Ecommerce Layer
 
-**Goal:** External customer interaction  
+**Goal:** Any business on Operbase that wants to sell online gets a storefront automatically — no separate build, no technical setup
 
-**Features:**
+**The core idea:**
 
-- Public ordering pages  
-- Order tracking  
+Every business on Operbase already has a product catalog with names, variants, add-ons, and sale prices (Phase 1). That is everything needed to generate a public ordering page. The ecommerce layer is not a separate feature — it is the product catalog made public-facing, with a URL and a checkout.
+
+**Auto-built storefronts:**
+
+- When a business enables ecommerce (one toggle in Settings), their storefront is live instantly at `operbase.store/{business-slug}` or a custom domain
+- The storefront is generated from the existing `products` + `product_variants` + `product_addons` tables — no manual rebuild
+- Brand color, logo, and business name from onboarding flow directly into the storefront — it looks like their brand, not a generic marketplace
+- If they update a product name or price in Operbase, the storefront updates automatically
+- Virtual and "both" mode businesses (Phase 3.5) default to ecommerce enabled. Physical-only businesses opt in.
+
+**What the storefront includes:**
+
+| Feature | Notes |
+|---------|-------|
+| Product listings | From `products` — name, price, photo (Phase 5 adds product photo upload) |
+| Variants + add-ons | From `product_variants` + `product_addons` — customer selects at checkout |
+| Order placement | Customer adds to cart, enters name/contact, places order |
+| Payment | Connects to the business's configured payment method (Phase 4) — Paystack, Flutterwave, bank transfer, or cash-on-delivery |
+| Order confirmation | Auto-send to customer (WhatsApp or email — TBD) |
+| Order tracking | Customer can check status with their order ID |
+
+**How orders flow back into operations:**
+
+An order placed on the storefront is not just a sales record — it creates a demand signal inside Operbase:
+
+- New order → appears in a "pending orders" view on the Sales page
+- Business owner fulfils the order → marks it as ready/delivered
+- On fulfil: links to a production batch (if items are made fresh per order) or deducts from existing `units_remaining`
+- Revenue and COGS flow into the same profit engine as walk-in sales — no separate P&L
+
+**Branch + ecommerce:**
+
+If the business has branches (Phase 3.7), the storefront can be configured per branch or per entity:
+- Entity storefront: customer picks location/branch at checkout
+- Branch storefront: each branch gets its own URL (e.g. `operbase.store/bakery-ikeja`)
+
+**Design principles:**
+
+- The storefront is not a separate product — it is a view layer on top of data that already exists
+- Every existing Operbase business can opt in to ecommerce without any migration or data entry
+- The storefront is mobile-first — most orders will come from phones
+- Custom domain support (CNAME) is a paid-tier feature
 
 **Data focus:**
 
-- Customer behavior  
-- Conversion rates  
+- Storefront conversion rate (views → orders)
+- Order source (walk-in vs. online) — already distinguishable by `batch_id` presence and `source` flag on sales
+- Repeat customer rate from online orders
 
-**Status:** Not started.
+**Status:** Not started. Product catalog (Phase 1) is the foundation. Payment gateway integration (Phase 4) must come first. Phase 3.5 business mode flag determines default opt-in.
 
 ---
 
@@ -425,7 +573,7 @@ This model positions Operbase as a payment facilitator and enables a transaction
 - Country of operation set per business (already have `timezone`, `currency`, `locale` in `business_settings`)  
 - Tax engine — calculate tax per transaction based on business country + business type (VAT, GST, sales tax, etc.)  
 - Tax filing support — generate tax-period summaries formatted to local filing requirements  
-- Multi-location / multi-country businesses — a single business account can have multiple operating locations, each with its own country, currency, and tax rules; financial reporting consolidates across locations  
+- Multi-country businesses — branches (Phase 3.7) may operate in different countries with different currencies and tax rules; Phase 6 adds the currency conversion and tax layer on top of the existing branch model  
 - Localised number/date/currency formatting per business locale  
 - Globalization-aware invoicing — invoice layout, tax line display, and legal fields vary by country  
 
