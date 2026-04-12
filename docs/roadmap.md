@@ -578,6 +578,59 @@ A business without branches simply doesn't show the branch picker — fulfilment
 
 ---
 
+### Phase 4.5 — Reporting & Exports
+
+**Goal:** Give business owners the ability to pull structured, downloadable reports from their Operbase data — for accountability, decision-making, and tax/compliance filing
+
+**Why this is a distinct phase**
+
+The Insights page (Phase 1) already gives visual summaries. Reporting is different: it produces a structured document — a PDF, CSV, or spreadsheet — that can be shared with an accountant, filed with a tax authority, shown to a bank, or used for end-of-month reconciliation. The data already exists; reporting is about packaging and exporting it correctly.
+
+**Two layers of reporting:**
+
+**1. Operational reports** — running the business, accountability
+
+| Report | What it covers |
+|--------|---------------|
+| **Sales report** | All sales for a period: product, quantity, unit price, revenue, COGS, profit per sale. Subtotals per product and per period. |
+| **Production report** | All runs for a period: product, units made, units sold, units wasted/given away, cost per run. |
+| **Stock movement report** | Every stock entry: item, quantity in/out, source (purchase, production, manual use), running balance. |
+| **Ingredient spend report** | Cost of every ingredient purchased in a period. Good for supplier negotiations and budget planning. |
+| **Profit & Loss summary** | Revenue, COGS, gross profit, waste cost — for a period. The business's P&L in plain language. |
+| **Branch comparison report** | (Requires Phase 3.7) Side-by-side: revenue, profit, waste per branch for a period. |
+
+**2. Compliance reports** — tax filing and external accountability
+
+| Report | What it covers |
+|--------|---------------|
+| **VAT / sales tax report** | Tax collected per transaction for a period, formatted to the business's country requirements. Depends on Phase 6 tax engine for accurate calculation — a basic version (list of sales with tax line) can ship earlier. |
+| **Income summary (accountant-ready)** | Total revenue, total costs, net profit for a period — formatted for handoff to an accountant or bookkeeper. |
+| **Inventory valuation** | Current stock on hand × cost per unit = total inventory value. Needed for balance sheet / asset reporting. |
+
+**Export formats:**
+
+- **PDF** — for sharing, printing, filing. Clean layout with business name, logo, period, and page numbers.
+- **CSV** — for importing into Excel, Google Sheets, or accounting software (QuickBooks, Wave, Xero).
+- Both formats generated server-side (no client-side PDF hacks) — jsPDF or Puppeteer for PDF, simple CSV string for spreadsheet.
+
+**Billing:**
+
+- Basic exports (CSV of sales/production for current month) — **free**
+- Full PDF reports with branding + all report types — **one-off unlock** or **Starter+ subscription** (validate which)
+- Tax compliance reports — **Pro+ subscription** (tied to Phase 6 tax engine, which is a paid feature)
+- Accountant access (share a read-only report link with a third party) — **Starter+**
+
+**Design principles:**
+
+- Reports are generated on demand, not stored — a user requests a report, the server queries the DB and returns the file. No report scheduling in this phase (that's Phase 7 agents).
+- Date ranges are always in the business's timezone — never UTC surprises on a tax report.
+- Reports are labelled with the business name and report period on every page — professional output that can be handed to a third party without embarrassment.
+- For multi-branch businesses (Phase 3.7): every report can be generated per-branch or consolidated across the entity.
+
+**Status:** Not started. The underlying data all exists. Phase 4 (invoicing + PDF infrastructure) shares the PDF generation concern — build that capability once and use it for both invoices and reports.
+
+---
+
 ### Phase 6 — Globalisation Layer
 
 **Goal:** Make Operbase work correctly regardless of country of operation  
@@ -669,6 +722,7 @@ The free tier must cover everything a small business needs to track their day-to
 | Sales logging | Core |
 | Dashboard (today's profit, alerts) | Core |
 | Insights (basic) | Core — knowing margin is the point |
+| Basic CSV export (current month sales/production) | Low-friction data access — keeps trust |
 | 1 business | Base unit of the product |
 | 1 branch / location | Default for single-location businesses |
 | Up to 3 staff accounts | Enough for a small team without multi-user overhead |
@@ -702,6 +756,7 @@ These are discrete unlocks with low ongoing cost — there's no reason to charge
 | Feature | One-off charge | Notes |
 |---------|---------------|-------|
 | Custom domain (CNAME on storefront) | One-off setup fee | DNS config is a one-time action; no ongoing cost to Operbase |
+| PDF reports (full branded reports — P&L, stock movement, etc.) | One-off unlock or Starter+ | Validate preference; generating PDFs is cheap once infra exists |
 | PDF / invoice generation | One-off unlock | Once enabled, the feature is theirs — generating PDFs is cheap |
 | Assisted onboarding | One-off service fee | Hands-on setup help from the Operbase team — not automated |
 | “Start from template” (clone a business catalog) | One-off | Useful for franchises opening a 2nd location |
