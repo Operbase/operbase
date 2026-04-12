@@ -982,6 +982,106 @@ Conceptual responsibilities:
 
 ---
 
+### Technology Change Points — When and Why
+
+The current stack (Next.js + Supabase + Vercel) is the right choice now: low setup cost, fast iteration, no infrastructure to manage. But every layer has a natural point where the trade-offs shift. This section maps those out so the decisions are made deliberately — not in a crisis.
+
+**The key principle:** the application code (Next.js, TypeScript, SQL schema, RLS, RPCs) is almost entirely portable. Technology changes at the infrastructure layer should not require rewriting the product. The choices below are designed with that in mind.
+
+---
+
+#### Supabase — the most likely layer to change
+
+**What it gives now:** Postgres + Auth + RLS + RPCs + Storage, all managed. Zero ops overhead. Generous free tier.
+
+**The lock-in risk:** Supabase Auth uses `auth.uid()` inside the database functions and RLS policies. This is a Supabase-specific extension. If the auth layer changes, those calls need updating across every RPC and policy — that's real work, not just config. Everything else (the SQL schema, the PL/pgSQL functions, the data) is standard Postgres and fully portable.
+
+**When to reconsider:**
+
+| Trigger | Why it matters |
+|---------|----------------|
+| Monthly Supabase bill exceeds ~15–20% of revenue | At that point, self-hosted Postgres (£30–80/month VPS) is materially cheaper |
+| Enterprise customers require data residency in a specific region | Supabase has regions but not unlimited; self-hosted Postgres on a VPS in any country solves this |
+| Regulated industry customers (finance, health) require on-premise or dedicated hosting | Shared managed infrastructure won't satisfy their compliance requirements |
+| Supabase makes a significant pricing or product change | Less likely — but worth having an exit path ready |
+
+**Migration path when triggered:**
+
+1. **Database only:** Move to a managed Postgres provider (Neon, Railway, or AWS RDS). The schema, migrations, and RPCs all move as-is — standard SQL. Zero application code changes.
+2. **Auth only:** Replace Supabase Auth with Auth.js (NextAuth), Clerk, or custom JWT. Requires updating `auth.uid()` references in RPCs and RLS policies — scoped, not a rewrite. ~2–4 days of careful migration work.
+3. **Full self-host:** Run Postgres + Supabase OSS (it's open source) on your own VPS. Same API, same `auth.uid()` — the cheapest path at scale, zero code changes. Operbase could run on a £50/month server for thousands of businesses.
+
+**What never changes regardless:** The SQL schema, data model, RLS design, and RPCs are investments that outlast any vendor. They are written to be standard — no Supabase-proprietary types or functions except `auth.uid()`.
+
+---
+
+#### Vercel — changes when traffic becomes predictable and large
+
+**What it gives now:** Zero-config deployment, automatic preview URLs, global CDN, serverless functions. Ideal when traffic is variable and small.
+
+**The cost shift:** Vercel's pricing is per invocation + GB-second for serverless functions. At low traffic this is cheap. At high, predictable traffic (thousands of businesses logging daily), a dedicated server is dramatically cheaper — a £50/month VPS can handle more load than £300/month of Vercel function calls.
+
+**When to reconsider:**
+
+| Trigger | Why |
+|---------|-----|
+| Vercel hosting bill exceeds ~10% of revenue | A VPS or Railway instance costs a fraction at sustained load |
+| API routes (production, sales, insights) are being called heavily and predictably | Predictable load → reserved compute is cheaper than per-invocation |
+| Need long-running processes (report generation, scheduled agent tasks, Phase 7) | Vercel functions have a max execution time; long jobs need a persistent server |
+
+**Migration path:** Next.js runs anywhere. `next start` on any Node.js host — Fly.io, Railway, Render, a raw VPS, or a containerised deployment. Static assets go to a CDN. This is a hosting change, not a code change. A week of DevOps work at most.
+
+---
+
+#### Next.js — lowest risk, least likely to change
+
+**Why it stays:** Next.js is owned by Vercel but is open source, widely deployed, and the migration path to any other React framework (Remix, SvelteKit, etc.) is a UI rewrite — never worth doing unless there's a fundamental architectural reason. There isn't one here.
+
+**Only reason to reconsider:** If the product pivots to pure mobile (React Native) and the web app becomes secondary. Even then, the API layer (Next.js route handlers or a separate API) stays — only the frontend changes.
+
+---
+
+#### AI providers — already handled
+
+The multi-model abstraction (Vercel AI SDK, Phase 1.6) means providers can be swapped with a one-line config change. No lock-in by design. See Phase 1.6 and Phase 7.
+
+---
+
+#### Business owner data — how it stays safe through all of this
+
+This is the non-negotiable concern. A business owner's revenue, cost, and profit data is sensitive. It must be safe at rest, in transit, and across any technology migration.
+
+**Now:**
+- All data is isolated by `business_id` with Row Level Security — no business can see another's data, even if the app has a bug
+- Supabase encrypts data at rest and in transit
+- No raw financial data is ever logged, exposed in error messages, or sent to third parties
+- RPCs never return data for a `business_id` that doesn't match the authenticated session
+
+**During a migration:**
+- Data export must happen before the old infrastructure is decommissioned — never cut over until the new database is verified to have complete, consistent data
+- Migrations run in parallel (old system stays live until new is verified) — no data loss window
+- Business owners should be able to export their own data at any time (Phase 4.5 reporting + a full JSON export option) — they are never locked in to Operbase either
+
+**At scale / for regulated markets:**
+- Offer data residency options when enterprise customers require it (EU data stays in EU, Nigeria data stays in Nigeria) — achievable by choosing hosting region, not a schema change
+- Consider offering a "business data export" endpoint from day one — not just for compliance but for trust. A business owner who knows they can leave (and take their data) is more likely to stay.
+
+**The core commitment:** A business owner's operational data belongs to them. Operbase is a custodian, not an owner. Any technology decision that puts that data at risk — whether through vendor lock-in, insecure migration, or opaque storage — is the wrong decision regardless of cost.
+
+---
+
+#### Summary — when each layer changes
+
+| Layer | Change trigger | Migration effort | Risk to data |
+|-------|---------------|-----------------|-------------|
+| **Supabase DB** | Cost or data residency requirement | Low — standard SQL, portable | Low — same Postgres, same schema |
+| **Supabase Auth** | Cost or compliance | Medium — update `auth.uid()` in RPCs and RLS | Low if done carefully, with parallel run |
+| **Vercel** | Cost at predictable high traffic | Low — Next.js runs anywhere | None — hosting only |
+| **Next.js** | Almost never | High — UI rewrite | None |
+| **AI providers** | Already abstracted | Near-zero | None |
+
+---
+
 ## 8. Legal & Compliance
 
 This section must be completed **before any paid plan is offered or user data is stored in production at scale.**
