@@ -41,6 +41,11 @@ import type {
   ProductionBatchRow,
   ProductionStockItemRow,
 } from '@/lib/dashboard/production-data'
+import {
+  fetchRecipesForProduct,
+  scaleRecipeItems,
+  type Recipe,
+} from '@/lib/recipes'
 
 type Batch = ProductionBatchRow
 type StockItemOption = ProductionStockItemRow
@@ -97,6 +102,9 @@ export function ProductionPageClient({
   const [productCatalog, setProductCatalog] = useState<ProductWithVariants[]>([])
   const [variantsForProduct, setVariantsForProduct] = useState<ProductVariantOption[]>([])
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null)
+  const [recipesForProduct, setRecipesForProduct] = useState<Recipe[]>([])
+  const [recipePickerOpen, setRecipePickerOpen] = useState(false)
+  const [appliedRecipeId, setAppliedRecipeId] = useState<string | null>(null)
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -225,19 +233,69 @@ export function ProductionPageClient({
       })
   }, [dialogOpen, businessId, supabase])
 
-  // When product name changes, load its variants
+  // When product name changes, load its variants and available recipes
   useEffect(() => {
     const nameTrim = form.productName.trim().toLowerCase()
     const found = productCatalog.find((p) => p.name.toLowerCase() === nameTrim)
     setVariantsForProduct(found?.variants ?? [])
     setSelectedVariantId(null)
-  }, [form.productName, productCatalog])
+    setAppliedRecipeId(null)
+    setRecipesForProduct([])
+    if (found && businessId) {
+      fetchRecipesForProduct(createClient(), businessId, found.id)
+        .then(setRecipesForProduct)
+        .catch(() => {/* silently skip — recipes are optional */})
+    }
+  }, [form.productName, productCatalog, businessId])
+
+  function applyRecipe(recipe: Recipe) {
+    const targetUnits = parseFloat(form.unitsProduced) || recipe.yield_quantity
+    const scaled = scaleRecipeItems(recipe, targetUnits)
+
+    // Check which items are missing from stock entirely (not loaded = not in items table)
+    const missingFromStock = scaled.filter(
+      (l) => !stockItems.find((s) => s.id === l.item_id)
+    )
+    // Check which items exist in stock but have zero cost (will skew costing)
+    const zeroCostItems = scaled.filter((l) => {
+      const si = stockItems.find((s) => s.id === l.item_id)
+      return si && estimatedCostPerUsageUnit(si) === 0
+    })
+
+    if (missingFromStock.length > 0) {
+      toast.warning(
+        `${missingFromStock.map((l) => l.item_name).join(', ')} ${missingFromStock.length === 1 ? 'is' : 'are'} not in your stock list — their cost will show as zero and your total production cost will be understated. Add them to stock first for accurate costing.`,
+        { duration: 8000 }
+      )
+    } else if (zeroCostItems.length > 0) {
+      toast.warning(
+        `${zeroCostItems.map((l) => l.item_name).join(', ')} ${zeroCostItems.length === 1 ? 'has' : 'have'} no price set — their cost will show as zero. Update the stock price to get an accurate production cost.`,
+        { duration: 8000 }
+      )
+    }
+
+    // Pre-fill lines — include all recipe items so user can see and tweak
+    const newLines = scaled.map((l) => ({
+      itemId: l.item_id,
+      quantity: String(l.quantity),
+      purchaseLotId: '',
+    }))
+    setLines(newLines.length > 0 ? newLines : [{ itemId: '', quantity: '', purchaseLotId: '' }])
+    setAppliedRecipeId(recipe.id)
+    setRecipePickerOpen(false)
+    // Open the ingredient tracking section automatically
+    const details = document.getElementById('ingredient-tracking-details')
+    if (details) (details as HTMLDetailsElement).open = true
+  }
 
   function openAdd() {
     setEditingBatch(null)
     setLotOptionsByItem({})
     setVariantsForProduct([])
     setSelectedVariantId(null)
+    setRecipesForProduct([])
+    setAppliedRecipeId(null)
+    setRecipePickerOpen(false)
     setForm({
       productName: '',
       unitsProduced: '',
@@ -372,8 +430,11 @@ export function ProductionPageClient({
         if (error) throw error
         if (!batchId) throw new Error('No batch id returned')
 
-        if (selectedVariantId) {
-          await client.from('batches').update({ variant_id: selectedVariantId }).eq('id', batchId as string)
+        if (selectedVariantId || appliedRecipeId) {
+          await client.from('batches').update({
+            ...(selectedVariantId ? { variant_id: selectedVariantId } : {}),
+            ...(appliedRecipeId  ? { recipe_id: appliedRecipeId }  : {}),
+          }).eq('id', batchId as string)
         }
 
         // Quick sale — log it right now if the user filled in sold qty + price
@@ -757,12 +818,56 @@ export function ProductionPageClient({
 
               {/* ── Ingredient tracking ── */}
               {!editingBatch && (
-                <details className="border rounded-lg" style={{ borderColor: 'var(--brand-mid)' }}>
+                <details id="ingredient-tracking-details" className="border rounded-lg" style={{ borderColor: 'var(--brand-mid)' }}>
                   <summary className="cursor-pointer px-3 py-3 flex items-center justify-between rounded-lg" style={{ backgroundColor: 'var(--brand-light)' }}>
                     <span className="text-base font-medium" style={{ color: 'var(--brand-dark)' }}>Track what you used (optional)</span>
-                    <span className="text-xs text-gray-500 ml-2">Add ingredients to see cost</span>
+                    <span className="text-xs text-gray-500 ml-2">
+                      {appliedRecipeId
+                        ? `Recipe applied · ${lines.filter((l) => l.itemId).length} ingredients`
+                        : 'Add ingredients to see cost'}
+                    </span>
                   </summary>
                   <div className="space-y-3 px-3 pb-3 pt-2">
+                    {/* ── Recipe picker ── */}
+                    {recipesForProduct.length > 0 && (
+                      <div
+                        className="rounded-lg border p-3 space-y-2"
+                        style={{ borderColor: 'var(--brand-mid)', backgroundColor: 'var(--brand-light)' }}
+                      >
+                        <p className="text-xs font-medium" style={{ color: 'var(--brand-dark)' }}>
+                          Use a saved recipe to pre-fill ingredients
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {recipesForProduct.map((recipe) => (
+                            <button
+                              key={recipe.id}
+                              type="button"
+                              onClick={() => applyRecipe(recipe)}
+                              className={cn(
+                                'text-xs px-3 py-1.5 rounded-full border transition-colors',
+                                appliedRecipeId === recipe.id
+                                  ? 'text-white border-transparent'
+                                  : 'bg-white border-gray-200 text-gray-700 hover:border-gray-400'
+                              )}
+                              style={appliedRecipeId === recipe.id ? { backgroundColor: 'var(--brand)', borderColor: 'var(--brand)' } : {}}
+                            >
+                              {recipe.name}
+                              {recipe.variant_id && (
+                                <span className="ml-1 opacity-70">
+                                  ({variantsForProduct.find((v) => v.id === recipe.variant_id)?.name ?? 'variant'})
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                        {appliedRecipeId && (
+                          <p className="text-xs text-gray-500">
+                            Ingredients scaled to {form.unitsProduced || '?'} units. Edit any line below if needed.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex justify-between items-center gap-2">
                       <p className="text-xs text-gray-600">
                         Amounts are in each item&apos;s recipe unit (cups, grams, eggs…).

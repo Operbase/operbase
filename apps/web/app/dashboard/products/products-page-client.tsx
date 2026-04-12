@@ -19,6 +19,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useBusinessContext } from '@/providers/business-provider'
 import { formatCurrency } from '@/lib/format-currency'
 import { friendlyError } from '@/lib/errors'
+import { RecipeManager } from '@/components/recipe-manager'
 
 function InfoTip({ text }: { text: string }) {
   return (
@@ -434,6 +435,13 @@ export function ProductsPageClient({
                   </button>
                 ))}
               </div>
+
+              {/* ── Recipes ── */}
+              <RecipeManager
+                productId={product.id}
+                productName={product.name}
+                variants={product.variants}
+              />
             </div>
           ))}
         </div>

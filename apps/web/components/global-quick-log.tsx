@@ -15,6 +15,7 @@ import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { useBusinessContext } from '@/providers/business-provider'
 import { formatCalendarDateInTimeZone, businessCalendarDateToIsoUtc } from '@/lib/business-time'
+import { fetchRecipesForProduct, type Recipe } from '@/lib/recipes'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -91,6 +92,10 @@ export function GlobalQuickLog() {
   const productsRef       = useRef<Product[]>([])
   const skipVariantClear  = useRef(false)
   useEffect(() => { productsRef.current = products }, [products])
+
+  // Recipe state for "I made"
+  const [madeRecipes, setMadeRecipes] = useState<Recipe[]>([])
+  const [madeRecipeId, setMadeRecipeId] = useState<string | null>(null)
 
   // Forms
   const [madeForm,   setMadeForm]   = useState(D_MADE)
@@ -203,6 +208,8 @@ export function GlobalQuickLog() {
     setGaveForm(D_GAVE)
     setVariants([])
     setBatches([])
+    setMadeRecipes([])
+    setMadeRecipeId(null)
   }
 
   // ── Variant loading ──────────────────────────────────────────────────────────
@@ -250,9 +257,20 @@ export function GlobalQuickLog() {
     formType: 'made' | 'sold' | 'gave'
   ) {
     const productId = id ?? products.find(p => p.name.toLowerCase() === name.toLowerCase())?.id ?? null
-    if (formType === 'made') setMadeForm(f => ({ ...f, productName: name, productId, variantId: null }))
-    else if (formType === 'sold') setSoldForm(f => ({ ...f, productName: name, productId, variantId: null, batchId: null }))
-    else setGaveForm(f => ({ ...f, productName: name, productId, variantId: null, batchId: null }))
+    if (formType === 'made') {
+      setMadeForm(f => ({ ...f, productName: name, productId, variantId: null }))
+      setMadeRecipeId(null)
+      setMadeRecipes([])
+      if (productId && businessId) {
+        fetchRecipesForProduct(supabase, businessId, productId)
+          .then(setMadeRecipes)
+          .catch(() => {/* silently skip */})
+      }
+    } else if (formType === 'sold') {
+      setSoldForm(f => ({ ...f, productName: name, productId, variantId: null, batchId: null }))
+    } else {
+      setGaveForm(f => ({ ...f, productName: name, productId, variantId: null, batchId: null }))
+    }
     setVariants([])
     setBatches([])
     if (productId) {
@@ -350,6 +368,11 @@ export function GlobalQuickLog() {
         ...(madeForm.variantId ? { p_variant_id: madeForm.variantId } : {}),
       })
       if (bErr) throw bErr
+
+      // Link the recipe used (for cost-trend insights) even though quick log skips ingredient lines
+      if (madeRecipeId && batchId) {
+        await supabase.from('batches').update({ recipe_id: madeRecipeId }).eq('id', batchId as string)
+      }
 
       if (soldQty > 0) {
         const { error: sErr } = await supabase.rpc('record_sale_with_batch', {
@@ -731,6 +754,39 @@ export function GlobalQuickLog() {
                   value={madeForm.date}
                   onChange={v => setMadeForm(f => ({ ...f, date: v }))}
                 />
+
+                {/* ── Recipe picker (shown when product has saved recipes) ── */}
+                {madeRecipes.length > 0 && (
+                  <div
+                    className="rounded-lg border px-3 py-2.5 space-y-1.5"
+                    style={{ borderColor: 'var(--brand-mid)', backgroundColor: 'var(--brand-light)' }}
+                  >
+                    <p className="text-xs font-medium" style={{ color: 'var(--brand-dark)' }}>
+                      Which recipe did you use?
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {madeRecipes.map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => setMadeRecipeId(id => id === r.id ? null : r.id)}
+                          className="text-xs px-3 py-1.5 rounded-full border transition-colors"
+                          style={madeRecipeId === r.id
+                            ? { backgroundColor: 'var(--brand)', borderColor: 'var(--brand)', color: 'white' }
+                            : { backgroundColor: 'white', borderColor: '#e5e7eb', color: '#374151' }
+                          }
+                        >
+                          {r.name}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      {madeRecipeId
+                        ? 'Recipe linked — ingredient costs tracked from the production page.'
+                        : 'Optional — helps track cost trends over time.'}
+                    </p>
+                  </div>
+                )}
 
                 <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-gray-700 py-0.5">
                   <input type="checkbox" checked={madeForm.soldSome}

@@ -22,9 +22,13 @@ From inside `docs/`, the same file is [`roadmap.md`](./roadmap.md).
 
 Operbase is a simple business operating system for small businesses to track operations, understand costs, and know real profit with clarity.
 
-It is built for business owners — not just single-location sole traders. An owner might run the same business across five branches, or own a bakery and a restaurant, or operate entirely online. Operbase is designed to grow with them: one login, one platform, whether they have one outlet or many.
+It is built for business owners anywhere in the world — not just single-location sole traders. An owner might run the same business across five branches, or own a bakery and a restaurant, or operate entirely online. Operbase is designed to grow with them: one login, one platform, whether they have one outlet or many, wherever they are.
+
+Operbase is a global product from day one — like Asana, Notion, or Trello. It does not have a home market. It is localised to the business: their currency, their timezone, their language, their tax rules. The product adapts to the operator, not the other way around.
 
 The long-term possibility — not a guarantee, but a direction worth building toward — is that Operbase becomes more than a back-office tool. With enough businesses on the platform, Operbase could become the layer that connects them to customers: a network where we help small businesses get found, get orders, and grow. If we reach that point, the data and trust we have built from running their operations puts us in a uniquely credible position to do it.
+
+A second long-term product direction — not in current scope — is equity and cap table management, similar to what Carta does. Operbase already holds a business's financial data, product revenue, and ownership context. That foundation is relevant to cap table calculations, equity dilution tracking, and investor reporting when a business grows to that stage. This is a future product line, not a feature. It does not get built until the core operations platform is mature and there is clear demand from businesses reaching that scale.
 
 ---
 
@@ -49,6 +53,7 @@ The long-term possibility — not a guarantee, but a direction worth building to
 - **Mobile (PWA)** — installable progressive web app; mobile-optimised surface focused on quick log, today's profit, and alerts *(see Phase 3.6)*
 - Platform Billing
 - Customer Acquisition Network *(long-term vision — see Phase 9)*
+- **Equity & Cap Table Management** *(long-term, separate product line)* — Operbase already holds a business's revenue, costs, and ownership context. That foundation is directly relevant to cap table calculations, equity dilution tracking, and investor reporting as a business grows. Similar to what Carta does, but built on top of operational data Operbase already owns. This is a future product decision — not a feature, and not in scope until the core operations platform is mature and demand from scaling businesses is clear.
 - **CRM integrations** *(exploratory)* — sync customers/leads with external CRMs when a clear operator use case emerges; not committed *(see “Integrations (exploratory)” below)*
 
 **Solution Layer (Entry Points)**
@@ -162,7 +167,7 @@ The existing `business-assistant.tsx` component matches keywords and returns har
 
 **The problem it solves:**
 
-Low-stock alerts, unsold batch warnings, and daily summaries already exist in the app. But a baker is in a kitchen at 6am, a food vendor is at a market, a caterer is at an event. The app notification is invisible to them in those moments. In the primary target markets (Nigeria, West Africa), **WhatsApp is the dominant communication channel** — it is more reliable, more trusted, and more immediately seen than email, push, or SMS.
+Low-stock alerts, unsold batch warnings, and daily summaries already exist in the app. But a baker is in a kitchen at 6am, a food vendor is at a market, a caterer is at an event. The app notification is invisible to them in those moments. Globally, **WhatsApp is one of the most-used communication channels for small business owners** — with over 2 billion users across more than 180 countries, it is more reliably seen than email, push, or SMS in most markets.
 
 **Notification channels (in priority order):**
 
@@ -211,37 +216,60 @@ Low-stock alerts, unsold batch warnings, and daily summaries already exist in th
 
 The rule-based assistant hits a ceiling fast — it cannot reason, generalise, or answer unexpected questions. But jumping straight to a paid Claude API integration before the app has paying users creates an unsustainable cost dependency. The solution is a **provider-agnostic AI layer** that starts on a free tier and can be swapped or upgraded per plan tier without rewriting the assistant logic.
 
-**Architecture: Multi-model abstraction**
+**Architecture: Multi-model abstraction with fallback routing**
 
-Use the **Vercel AI SDK** (`ai` package) as the model-agnostic interface. It supports Groq, Anthropic, OpenAI, and others behind a single `streamText` / `generateText` API. Swapping providers is a one-line config change — the assistant code does not know or care which model it is talking to.
+Use the **Vercel AI SDK** (`ai` package) as the model-agnostic interface. It supports Groq, Anthropic, OpenAI, Google Gemini, and any OpenAI-compatible endpoint (including self-hosted Ollama) behind a single `streamText` / `generateText` API. Swapping providers is a one-line config change — the assistant code does not know or care which model it is talking to.
 
 ```
 User query
     ↓
-Model Router (selects provider + model based on plan tier / task type)
+Model Router
+  — selects primary provider based on plan tier + task type
+  — if primary is rate-limited or errors: try next provider in chain
+  — if all external providers fail: fall back to self-hosted if available
     ↓
 Vercel AI SDK (unified interface)
     ↓
-Provider: Groq (free) | Anthropic Claude | OpenAI GPT-4 | others
+Provider chain:
+  Free:  Groq → (fallback) Cloudflare Workers AI
+  Paid:  Anthropic → OpenAI → Google Gemini → (fallback) Groq
+  Self-hosted: Ollama (OpenAI-compatible endpoint) — data never leaves Operbase servers
     ↓
 Tool calls → Supabase RPCs (dashboard_metrics, low_stock_alerts, etc.)
     ↓
 Response streamed back to in-app assistant
 ```
 
+**Why multi-provider on paid matters:**
+
+No single AI provider is perfectly reliable at scale. Anthropic can and does hit token limits, rate limits, and occasional outages. A user asking their business a question at 9am on a busy day should not get "unavailable" because one provider is struggling. The router tries the next capable provider in the chain automatically — the user just gets an answer.
+
 **Provider tiers (cost-to-capability ladder)**
 
-| Tier | Provider | Model | Cost | Use case |
-|------|----------|-------|------|----------|
-| **Free** | Groq | `llama-3.3-70b-versatile` or `llama-3.1-8b-instant` | Free (rate-limited) | Default for free plan users — handles most Q&A |
-| **Mid** | Groq | `moonshotai/kimi-k1.5-32k` or `deepseek-r1-distill` | Very cheap | Slightly richer reasoning, still low cost |
-| **Premium** | Anthropic | `claude-haiku-4-5` | Paid — low cost | Fast, capable, great for structured tasks |
-| **Pro** | Anthropic | `claude-sonnet-4-6` | Paid — mid cost | Full reasoning, long context, agent tasks |
+| Tier | Primary | Fallback chain | Cost | Notes |
+|------|---------|---------------|------|-------|
+| **Free** | Groq (`llama-3.3-70b`) | Cloudflare Workers AI | Zero | Rate-limited; good for most Q&A |
+| **Starter (paid)** | Anthropic Haiku | OpenAI GPT-4o-mini → Groq | Low | Fast, capable; fallback ensures availability |
+| **Pro (paid)** | Anthropic Sonnet | OpenAI GPT-4o → Google Gemini Pro | Mid | Full reasoning; fallback to next capable model if rate-limited |
+| **Self-hosted** | Ollama (own server) | Any of the above as cloud fallback | Server cost only | Best privacy — data never leaves Operbase infrastructure |
 
-The router selects the tier based on:
+**Self-hosted LLM option (Ollama):**
+
+When Operbase has a dedicated server, running an open-source model locally via Ollama (Llama 3, Mistral, Qwen, or others) is a strong option:
+
+- Ollama exposes an OpenAI-compatible API endpoint — the Vercel AI SDK calls it identically to any other provider, zero code change
+- **Data never leaves Operbase servers** — this is the strongest possible privacy guarantee. No third-party terms to disclose. No data sent anywhere external.
+- Cost becomes server cost only — no per-token charges at any query volume
+- Suitable as the primary provider for Pro plan users when the server is provisioned, or as a guaranteed fallback when all cloud providers are rate-limited
+- Model quality depends on server hardware (GPU) — a capable GPU server runs Llama 3 70B well; CPU-only is usable for smaller models
+
+This is not a Phase 1.7 dependency — cloud providers are sufficient to start. It becomes worth evaluating when query volume grows enough that per-token cost justifies server provisioning.
+
+The router selects based on:
 - Business plan (`businesses.plan` column — already exists)
-- Task complexity hint (simple Q&A vs. multi-step reasoning)
-- Remaining free quota (fall back gracefully if rate-limited)
+- Task complexity (simple Q&A → cheaper/faster model; multi-step reasoning → capable model)
+- Provider availability — automatic fallback if primary returns a rate limit or error response
+- Self-hosted availability flag in config — if Ollama endpoint is configured, it enters the routing chain
 
 **What the assistant can do (Phase 1.7 scope)**
 
@@ -258,9 +286,28 @@ The router selects the tier based on:
 
 **Self-funding model**
 
-Free plan users → Groq free tier → £0 AI cost  
-Paid plan users → Claude Haiku / Sonnet → API cost covered by subscription revenue  
-This means the AI feature funds itself: only users who pay for it trigger a cost.
+Free plan users → Groq free tier → zero AI cost  
+Paid plan users → multi-provider chain (Anthropic / OpenAI / Gemini) → API cost covered by subscription revenue  
+Self-hosted → server cost only, no per-token charges → most cost-efficient at scale  
+This means the AI feature funds itself: only users who pay trigger a provider cost, and that cost reduces as self-hosted capacity grows.
+
+**Data privacy — what users need to know**
+
+When the AI assistant answers a question, it sends relevant business data (the numbers needed to answer — e.g. today's revenue, stock levels, product margins) to a third-party AI provider to generate the response. Users must know this before they use it.
+
+| Tier | Provider | Data handling |
+|------|----------|--------------|
+| **Free** | Groq (primary) | Data is processed on Groq's servers. Groq's terms may permit use of API data for model improvement — users should be made aware before first use. |
+| **Paid** | Anthropic / OpenAI / Gemini (with fallback) | Major paid providers (Anthropic, OpenAI, Google) contractually do not use API data to train models by default. This is a documentable privacy upgrade over the free tier. When the router falls back between paid providers, the same no-training guarantee applies across the chain. |
+| **Self-hosted** | Ollama on Operbase server | Data never leaves Operbase infrastructure. No third-party terms apply. This is the strongest possible privacy guarantee and the long-term direction for Pro plan users when server capacity justifies it. |
+
+**What this means in the product:**
+
+- When a user first activates the AI assistant, show a one-time disclosure: *"To answer your questions, the assistant sends relevant data from your business (like sales figures and stock levels) to an AI provider. On the free plan this is Groq. You can turn off the assistant at any time in Settings."*
+- The user can opt out of the AI assistant entirely — it is a feature, not a requirement. The rest of Operbase works without it.
+- On the free tier, minimise what is sent: only the data needed to answer the specific question, not a full business dump.
+- On the paid tier (Claude), surface the privacy upgrade clearly: *"Your data is processed by Anthropic, which does not use API data for model training."* This is a selling point worth communicating.
+- Store the user's AI consent in `business_settings` — a single flag per business. If they opt out, the assistant UI is hidden entirely. Do not send any data to any AI provider without this consent.
 
 **Implementation notes**
 
@@ -270,6 +317,7 @@ This means the AI feature funds itself: only users who pay for it trigger a cost
 - Tool definitions map to existing Supabase RPCs — no new DB functions needed
 - Rate limit the free tier assistant server-side (e.g. 20 queries / day for free plan)
 - Never expose API keys client-side — all provider calls stay in the API route handler
+- Add `ai_assistant_enabled boolean DEFAULT false` to `business_settings` — off until the owner explicitly turns it on and accepts the disclosure
 
 **Data to track**
 
@@ -281,25 +329,72 @@ This means the AI feature funds itself: only users who pay for it trigger a cost
 
 ---
 
-### Phase 2 — Business Expansion (Single Business)
+### Phase 2 — Multi-User & Staff Permissions
 
-**Goal:** Increase usability within one business  
+**Goal:** Let a business owner bring their team into Operbase — with full control over what each person can see and do
 
-**Features:**
+**The problem it solves:**
 
-- Multi-user support  
-- Role-based access (basic)  
-- Improved reporting
-- **Purchase waste / damaged-on-arrival tracking** — when goods arrive partially damaged (e.g. 2 eggs broken in a crate of 30), record quantity received vs quantity usable, with the damaged units written off as a separate waste/shrinkage expense rather than absorbed into the remaining stock cost. Currently the app uses the simpler "enter only what arrived usable" approach (Option A), which is correct for most small businesses. Option B (split waste entry) is the upgrade path here.
+A sole trader running their bakery alone is a Phase 1 user. But most small businesses that grow past the early stage have help — a floor manager, a sales person, an accountant, a part-time baker. Right now, every one of them would need the owner's login. That means the owner can't know who did what, can't restrict who sees financial data, and has no audit trail.
 
+Phase 2 gives the business owner the ability to invite staff — and configure exactly what each person can see and do. **There are no preset roles.** The owner decides.
 
+**Staff invitation flow:**
+
+1. Owner goes to Settings → Staff
+2. Enters staff member's name and email (or phone for WhatsApp-linked accounts)
+3. Configures their permissions (see below)
+4. Sends an invite — staff member gets a link to create their account
+5. Staff member's account is scoped to that business only (unless also invited to another)
+
+**Permission model — owner-configured, not preset:**
+
+The owner does not pick from a list of roles ("Manager", "Cashier", "Viewer"). Instead, they see a permission checklist per staff member when setting them up:
+
+| Permission area | Example choices |
+|----------------|----------------|
+| **Production** | Can log batches / Can view only / No access |
+| **Sales** | Can log sales / Can view only / No access |
+| **Stock** | Can log purchases and usage / Can view only / No access |
+| **Financial data** | Can see costs, profit, margin / Hidden (quantities only) |
+| **Staff management** | Can invite other staff / No access (owner only by default) |
+| **Products catalog** | Can edit products and prices / Can view only / No access |
+| **Insights & Reports** | Can access full insights / No access |
+
+The critical separation: **a staff member can log a sale without seeing the profit margin on that sale.** Financial visibility is a separate permission from operational access. The owner can give floor staff the logging tools they need without exposing cost and profit data.
+
+**Branch-scoped access (Phase 3.7 dependency):**
+
+When a business has multiple branches, staff access can be scoped further:
+- A branch manager at a specific location sees only that location's data
+- The owner sees all branches
+- A staff member can be explicitly granted access to multiple branches
+
+This is configured on the same permission screen — an extra "which branches?" step appears once branches exist. Phase 2 ships the permission model; Phase 3.7 extends it to branch scope. The architecture is the same — permission rows gain an optional `branch_id`.
+
+**What staff can never do (regardless of permissions):**
+
+- See another business's data — RLS is inviolable; staff inherit `business_id` isolation
+- Change the business owner's permissions
+- Delete the business or access billing credentials
+- View payment gateway credentials
+- See other staff members' individual activity logs (own logs only)
+
+**Audit trail:**
+
+Every action by a staff member is tagged with `user_id`. The owner can see who logged what and when. Large or unusual entries trigger a notification to the owner (Phase 1.6) — configurable thresholds set in Settings (e.g. "flag any single disposal > 20 units", "flag any sale above a set value logged by staff").
+
+**Purchase waste / damaged-on-arrival tracking:**
+
+When goods arrive partially damaged (e.g. 2 eggs broken in a crate of 30), the current flow is "enter only what arrived usable." Phase 2 adds the upgrade path: log quantity received vs. quantity usable, with damaged units written off as a shrinkage expense rather than absorbed into remaining stock cost. The simpler flow remains the default — this is an opt-in upgrade for businesses that need it.
 
 **Data focus:**
 
-- User activity  
-- Role usage  
+- Which permission areas are most commonly granted vs. restricted — signals what owners protect most
+- Staff action volume per business — baseline for anomaly detection
+- Invite acceptance rate — signals friction in the onboarding flow
 
-**Status:** Schema scaffolded (`roles`, `permissions`, `role_permissions`, `invites`). No UI.
+**Status:** Schema scaffolded (`roles`, `permissions`, `role_permissions`, `invites`). No UI. Permission model confirmed: owner-configured per staff member, no preset roles. Branch-scoped access requires Phase 3.7 branches table first.
 
 ---
 
@@ -553,24 +648,24 @@ Most small businesses with "branches" will use the first pattern. The second pat
 
 **Multi-country branches:**
 
-A restaurant group might have branches in Lagos, London, and Dubai. This is not just a timezone or language difference — it involves:
+A restaurant group might have branches in three different countries. This is not just a timezone or language difference — it involves:
 
 | Concern | How it's handled |
 |---------|-----------------|
 | **Different currencies** | Each branch stores its transactions in its own currency. Financial consolidation (entity view) requires conversion to the owner's base currency — see "Cross-currency consolidation" below. |
 | **Different tax rules** | Each branch country has its own VAT/sales tax rate and filing requirements. Phase 6 (Globalisation) adds the full tax engine on top of the branch's `country` field. Phase 3.7 stores the country — Phase 6 makes it compute-aware. |
-| **Different payment gateways** | A Lagos branch uses Paystack. A London branch uses Stripe. Gateway configuration (Phase 4) is per-branch, not per-business. |
-| **Data residency** | EU law requires that EU customer data stays in the EU. A business with a London branch serving EU customers must ensure that branch's data is hosted within the EU. This is an infrastructure concern (see Section 7) — the schema supports it by flagging branch country. |
-| **Staff access scoped to branch** | A branch manager in Lagos should not see London branch financials. Role permissions (Phase 2) must be extendable to branch-level scope: `user can manage branch X but not branch Y`. |
+| **Different payment gateways** | Each country has its preferred or available gateways. Gateway configuration (Phase 4) is per-branch, not per-business. |
+| **Data residency** | Some jurisdictions require that customer data stays within their borders. A branch's `country` field flags this; the infrastructure layer routes storage accordingly (see Section 7). |
+| **Staff access scoped to branch** | A branch manager in one country should not see another country's branch financials. Role permissions (Phase 2) must be extendable to branch-level scope: `user can manage branch X but not branch Y`. |
 
 **Cross-currency consolidation (entity view):**
 
 When a business has branches in different currencies, the entity-level dashboard must convert all figures into a single base currency (the owner's declared home currency). 
 
 - For the dashboard (real-time): use the most recent FX rate, clearly labelled ("converted at today's rate")
-- For period reports (Phase 4.5): lock the rate at the time of the transaction — a sale in Lagos in January should be converted at January's rate, not today's. This matters for accurate P&L over time.
+- For period reports (Phase 4.5): lock the rate at the time of the transaction — a sale in January should be converted at January's rate, not today's. This matters for accurate P&L over time.
 - FX rates: fetched from a public API (e.g. Open Exchange Rates, or exchangerate.host which is free) and cached daily. Never calculated in the browser — always server-side.
-- The owner always sees figures labelled with the source currency and the conversion: "₦850,000 (≈ £430 at ₦1,977/£)"
+- The owner always sees figures labelled with the source currency and the conversion: e.g. "10,000 [source currency] (≈ 5 [display currency] at [rate])"
 
 **What branch consolidation gives you:**
 
@@ -624,7 +719,7 @@ A person might run a bakery and a restaurant. Or they might own the same bakery 
 
 **Multi-country businesses:**
 
-An owner might have a bakery registered in Nigeria and a catering company registered in the UK. These are legally separate entities in different countries with different currencies, tax systems, and compliance obligations.
+An owner might have a bakery registered in one country and a catering company registered in another. These are legally separate entities with different currencies, tax systems, and compliance obligations.
 
 | Concern | How it's handled |
 |---------|-----------------|
@@ -632,7 +727,7 @@ An owner might have a bakery registered in Nigeria and a catering company regist
 | **Cross-business roll-up currency** | When the owner views consolidated revenue across all their businesses, they choose a display currency (their "home" currency). All figures are converted at current rate, labelled clearly. This is a display layer — underlying records stay in each business's own currency. |
 | **Different tax obligations** | Each business is subject to its own country's tax rules. Phase 6 handles per-business tax configuration independently. There is no blending of tax across businesses. |
 | **Data residency per business** | A business registered in the EU must have its data hosted in the EU regardless of where the owner is. This is an infrastructure flag per business — `business_settings.data_region` — that the hosting layer uses to route to the correct database region. Phase 6 infrastructure work addresses this. |
-| **Different gateway connections** | Each business connects its own payment gateways (Phase 4). A Nigerian business uses Paystack; a UK business uses Stripe. There is no cross-business payment sharing. |
+| **Different gateway connections** | Each business connects its own payment gateways (Phase 4). Gateway choice is per-business and per-country — what is available or preferred varies by market. There is no cross-business payment sharing. |
 
 **Design principles:**
 
@@ -646,12 +741,14 @@ An owner might have a bakery registered in Nigeria and a catering company regist
 
 ---
 
+### Phase 4 — Payments, Invoicing & Document Generation
+
 **Goal:** Enable transactions and document generation  
 
 **Features:**
 
 - Payment methods — businesses configure how they accept payment (cash, bank transfer, POS, gateway)
-- Payment gateway integration — connect to Paystack, Flutterwave, or other gateways per business; each requires extra credentials stored securely per business
+- Payment gateway integration — connect to any major payment gateway (Stripe, Paystack, Flutterwave, Square, Razorpay, and others) per business; each requires extra credentials stored securely per business
 - Invoicing — generate, send, and track invoices per customer/sale  
 - Document printing — any generated document (invoice, batch report, sales summary) printable as PDF  
 - Billing engine — charge businesses based on plan tier and feature access (see Phase 8)  
@@ -665,28 +762,26 @@ Business pastes in their own API keys. Operbase stores them encrypted and handle
 
 | Gateway | Data needed |
 |---------|-------------|
+| Stripe | Secret key, publishable key, webhook secret |
 | Paystack | Secret key, public key, webhook secret |
 | Flutterwave | Secret key, public key, encryption key, webhook secret |
+| Razorpay / Square / others | Equivalent credential set per gateway's API requirements |
 | Manual / cash | No credentials — just a label and instructions |
 | Bank transfer | Account name, account number, bank name |
-
-**Mode 2 — Operbase-managed (we set it up for them)**
-Business does not have a gateway account. Operbase provisions one on their behalf using Paystack's or Flutterwave's sub-account / platform API. The business completes a KYC flow (name, bank account, BVN or equivalent) inside Operbase — we handle the gateway relationship and they receive payouts to their bank account.
-
-This model positions Operbase as a payment facilitator and enables a transaction fee revenue stream (take a small % of each payment processed through Operbase-managed gateways). Requires:
-- KYC data collection and storage (regulated — handle carefully, do not store raw BVN)
-- Sub-account creation via gateway platform API
-- Payout scheduling and reconciliation
-- Compliance: CBN regulations (Nigeria), relevant local rules per market
 
 **Design principles:**
 
 - Credentials are never exposed client-side — stored server-side only, referenced by a gateway connection ID
-- A business can have multiple active payment methods (e.g. cash + Paystack) — customer chooses at checkout
+- A business can have multiple active payment methods (e.g. cash + a gateway) — customer chooses at checkout
 - Gateway connection status (active, pending, disconnected) is surfaced in settings UI
 - Webhook handling is per-gateway — each has its own endpoint and signature verification
 - Payment gateway features are ecommerce-facing (Phase 5) but the connection and credential setup lives here in Phase 4
-- Operbase-managed mode is the higher-value path long term — it removes friction for small business owners who don't want to manage gateway accounts themselves
+
+**What Phase 4 is NOT:**
+
+Phase 4 does not make Operbase a payment collector, payment facilitator, or money transmitter. Operbase connects businesses to their own gateway accounts. Money flows gateway → business's bank. Operbase never touches the funds.
+
+Becoming a payment facilitator — where Operbase provisions accounts on businesses' behalf, holds or routes funds, and takes a cut — is a licensed, regulated activity in every market. That is a future business model decision that requires a legal entity, regulatory licence, and compliance infrastructure. **It is not in scope for Phase 4, or any phase in this roadmap as it stands.** If and when that direction is pursued, it gets its own roadmap entry with the full licensing requirements documented first.
 
 **Data focus:**
 
@@ -710,7 +805,7 @@ Every business on Operbase already has a product catalog with names, variants, a
 
 When a business owner turns on ecommerce, they go through a short setup:
 1. **Storefront details** — confirm business name, slug, and cover image (pre-filled from onboarding)
-2. **Payment method** — choose how customers pay: bank transfer, cash on delivery, or connect a gateway (Paystack / Flutterwave). This is where they configure payment for the first time if they haven't already, or select from already-connected gateways (Phase 4). A business can offer multiple methods and the customer picks at checkout.
+2. **Payment method** — choose how customers pay: bank transfer, cash on delivery, or connect a gateway. This is where they configure payment for the first time if they haven't already, or select from already-connected gateways (Phase 4). A business can offer multiple methods and the customer picks at checkout.
 3. **Fulfilment** — pickup at store, delivery to address, or both (branch picker appears here if they have branches)
 4. **Go live** — storefront is live at `operbase.store/{business-slug}` or a custom domain
 
@@ -729,7 +824,7 @@ When a business owner turns on ecommerce, they go through a short setup:
 | Product listings | From `products` — name, price, photo (Phase 5 adds product photo upload) |
 | Variants + add-ons | From `product_variants` + `product_addons` — customer selects at checkout |
 | Order placement | Customer adds to cart, enters name/contact, places order |
-| Payment | Connects to the business's configured payment method (Phase 4) — Paystack, Flutterwave, bank transfer, or cash-on-delivery |
+| Payment | Connects to the business's configured payment method (Phase 4) — whichever gateway they have connected, plus bank transfer and cash-on-delivery |
 | Order confirmation | Auto-send to customer (WhatsApp or email — TBD) |
 | Order tracking | Customer can check status with their order ID |
 
@@ -840,13 +935,10 @@ Phase 6 is the compute and compliance layer that activates on top of that struct
 **Tax engine:**
 
 - Calculate tax per transaction based on the business's (or branch's) country and business type
-- Country + business-type matrix drives tax rates — e.g.:
-  - Nigeria (FIRS): VAT 7.5% on most goods and services
-  - UK (HMRC): VAT 20%, with zero-rating on many food items (a bakery selling bread = 0%, selling hot food = 20%)
-  - EU: varies by country and product category
+- Country + business-type matrix drives tax rates — e.g. a food business in one country might have a 7.5% VAT rate on all goods; in another, food items may be zero-rated while hot prepared food is taxed at 20%; in a third, VAT varies by product category. The rules differ per jurisdiction, and even per product type within the same country.
 - Tax rules live in a configurable DB table — not hard-coded. Adding a new country = adding rows, not code.
 - Tax is always additive — existing `revenue`, `cogs`, `gross_profit` columns remain tax-exclusive. Tax is a separate layer on top and never contaminates the core profit engine.
-- For a business in Nigeria: the tax line is computed at time of sale. For a UK bakery: the system prompts setup of the correct rate at onboarding.
+- At onboarding, the business's declared country pre-fills the most likely tax configuration. The owner confirms or adjusts. The system never assumes.
 
 **Tax filing support:**
 
@@ -867,8 +959,8 @@ Phase 3.7 and 3.8 introduced display-currency conversion for the owner console a
 
 - Add `data_region` to `business_settings` (e.g. `eu-west`, `af-south`, `us-east`)
 - Infrastructure routes each business's DB connections to the correct region
-- EU businesses: data must stay in the EU (GDPR Article 44)
-- Nigerian businesses: NDPR requires data of Nigerian residents to be stored in Nigeria or in countries with adequate protection
+- Data residency requirements vary by country — some jurisdictions require data to stay within their borders. The `data_region` flag lets the hosting layer route correctly per business.
+- Examples: EU (GDPR), Brazil (LGPD), Nigeria (NDPR), India (DPDPA) — each has its own residency and transfer rules. The schema flags it; the infrastructure enforces it.
 - This is an infrastructure concern — the schema flags it, the hosting layer enforces it
 - Free plan: shared region (no guarantee). Starter+: region selection. Enterprise: dedicated region.
 
@@ -991,16 +1083,11 @@ These are discrete unlocks with low ongoing cost — there's no reason to charge
 
 ---
 
-**Take-rate (no upfront charge — % on transactions)**
+**Take-rate (future — not in current roadmap scope)**
 
-Operbase earns when the business earns. Aligned incentives.
+A take-rate model — where Operbase earns a % of transactions processed — requires Operbase to act as a payment facilitator. That is a licensed, regulated activity. It is not in scope for any current phase. If pursued in the future it gets its own planning, licensing, and compliance work. The current revenue model is subscriptions and one-off unlocks only.
 
-| Mechanism | Rate | Applies when |
-|-----------|------|-------------|
-| Ecommerce orders via Operbase storefront | Small % per order | Business processes payments through Operbase-managed gateway (Phase 4 Mode 2) |
-| Customer acquisition referrals (Phase 9) | Success fee per referred customer | Only on customers demonstrably sourced by Operbase network |
-
-Take-rate only applies when Operbase-managed gateways are used. A business using their own Paystack/Flutterwave keys (self-serve mode) pays no take rate — only their subscription if applicable.
+The exception is Phase 9 (customer acquisition referrals) — a success fee on customers demonstrably sourced by the Operbase network is not payment facilitation and can be structured as a standard platform referral fee. That remains a valid future revenue stream.
 
 ---
 
@@ -1052,6 +1139,27 @@ This is exploratory, not committed. It only makes sense if we have a critical ma
 **Monetisation hypothesis:** Take a small success fee per Operbase-referred customer who converts, or offer it as a premium plan feature. Either way, it only works if the referral quality is high.
 
 **Status:** Not started. Vision only. Do not build until Phase 5 (ecommerce) is live and validated.
+
+---
+
+### Settings — What Each Phase Adds
+
+Settings is not a phase. It is a central place in the app that accumulates configuration options as the product grows. Every phase that adds a configurable behaviour adds a section to Settings. The page is always accessible from the sidebar. Each section appears only once the relevant phase has shipped — no phantom config for features not yet live.
+
+| Phase | Settings section | What it contains |
+|-------|-----------------|-----------------|
+| **Phase 1** | Business profile | Business name, type, currency, timezone, logo, brand colour |
+| **Phase 1.6** | Notifications | WhatsApp number; notification opt-ins by alert type and channel |
+| **Phase 2** | Staff & permissions | Invite staff; configure per-staff permissions; unusual-activity thresholds |
+| **Phase 3.5** | Business mode | Physical / virtual / both; vertical language preference |
+| **Phase 3.7** | Branches | Add and manage branches; name, address, country, currency per branch |
+| **Phase 4** | Payments | Connect payment gateways (Stripe, Paystack, Flutterwave, and others); accepted payment methods per business |
+| **Phase 5** | Ecommerce | Enable/disable storefront; storefront slug; fulfilment config; custom domain |
+| **Phase 6** | Tax & compliance | VAT/tax rate per business or branch; data residency region |
+| **Phase 7** | AI & integrations | AI model tier; MCP API key management; agent permission scope |
+| **Phase 8** | Plan & billing | Current plan; upgrade/downgrade; payment history; one-off unlocks |
+
+Settings is the owner's control panel. Staff with the "Staff management" permission see only the Staff section. Everything else is owner-only by default.
 
 ---
 
@@ -1228,7 +1336,7 @@ The current stack (Next.js + Supabase + Vercel) is the right choice now: low set
 
 | Trigger | Why it matters |
 |---------|----------------|
-| Monthly Supabase bill exceeds ~15–20% of revenue | At that point, self-hosted Postgres (£30–80/month VPS) is materially cheaper |
+| Monthly Supabase bill exceeds ~15–20% of revenue | At that point, self-hosted Postgres ($30–80/month VPS) is materially cheaper |
 | Enterprise customers require data residency in a specific region | Supabase has regions but not unlimited; self-hosted Postgres on a VPS in any country solves this |
 | Regulated industry customers (finance, health) require on-premise or dedicated hosting | Shared managed infrastructure won't satisfy their compliance requirements |
 | Supabase makes a significant pricing or product change | Less likely — but worth having an exit path ready |
@@ -1237,7 +1345,7 @@ The current stack (Next.js + Supabase + Vercel) is the right choice now: low set
 
 1. **Database only:** Move to a managed Postgres provider (Neon, Railway, or AWS RDS). The schema, migrations, and RPCs all move as-is — standard SQL. Zero application code changes.
 2. **Auth only:** Replace Supabase Auth with Auth.js (NextAuth), Clerk, or custom JWT. Requires updating `auth.uid()` references in RPCs and RLS policies — scoped, not a rewrite. ~2–4 days of careful migration work.
-3. **Full self-host:** Run Postgres + Supabase OSS (it's open source) on your own VPS. Same API, same `auth.uid()` — the cheapest path at scale, zero code changes. Operbase could run on a £50/month server for thousands of businesses.
+3. **Full self-host:** Run Postgres + Supabase OSS (it's open source) on your own VPS. Same API, same `auth.uid()` — the cheapest path at scale, zero code changes. Operbase could run on a $50/month server for thousands of businesses.
 
 **What never changes regardless:** The SQL schema, data model, RLS design, and RPCs are investments that outlast any vendor. They are written to be standard — no Supabase-proprietary types or functions except `auth.uid()`.
 
@@ -1247,7 +1355,7 @@ The current stack (Next.js + Supabase + Vercel) is the right choice now: low set
 
 **What it gives now:** Zero-config deployment, automatic preview URLs, global CDN, serverless functions. Ideal when traffic is variable and small.
 
-**The cost shift:** Vercel's pricing is per invocation + GB-second for serverless functions. At low traffic this is cheap. At high, predictable traffic (thousands of businesses logging daily), a dedicated server is dramatically cheaper — a £50/month VPS can handle more load than £300/month of Vercel function calls.
+**The cost shift:** Vercel's pricing is per invocation + GB-second for serverless functions. At low traffic this is cheap. At high, predictable traffic (thousands of businesses logging daily), a dedicated server is dramatically cheaper — a $50/month VPS can handle more load than $300/month of Vercel function calls.
 
 **When to reconsider:**
 
@@ -1291,7 +1399,7 @@ This is the non-negotiable concern. A business owner's revenue, cost, and profit
 - Business owners should be able to export their own data at any time (Phase 4.5 reporting + a full JSON export option) — they are never locked in to Operbase either
 
 **At scale / for regulated markets:**
-- Offer data residency options when enterprise customers require it (EU data stays in EU, Nigeria data stays in Nigeria) — achievable by choosing hosting region, not a schema change
+- Offer data residency options when enterprise customers require it (each jurisdiction stays in its required region) — achievable by choosing hosting region, not a schema change
 - Consider offering a "business data export" endpoint from day one — not just for compliance but for trust. A business owner who knows they can leave (and take their data) is more likely to stay.
 
 **The core commitment:** A business owner's operational data belongs to them. Operbase is a custodian, not an owner. Any technology decision that puts that data at risk — whether through vendor lock-in, insecure migration, or opaque storage — is the wrong decision regardless of cost.
@@ -1314,16 +1422,65 @@ This is the non-negotiable concern. A business owner's revenue, cost, and profit
 
 This section must be completed **before any paid plan is offered or user data is stored in production at scale.**
 
+---
+
+### What Operbase collects from businesses — by stage
+
+The data Operbase needs from a business scales with what Operbase does for them. Collecting more than needed at each stage creates unnecessary privacy exposure and friction. Collecting less than needed creates legal risk.
+
+**Stage 1 — Back-office SaaS (Phase 1–3)**
+
+Operbase is a tool. Businesses log their own data. No money moves through Operbase. Regulatory burden is equivalent to any other SaaS product.
+
+| Data | Why | Where collected |
+|------|-----|----------------|
+| Owner name and email | Account identity | Signup |
+| Business name | Multi-tenant isolation | Onboarding |
+| Business type | Vertical language config | Onboarding |
+| Country | Timezone, currency, tax context | Onboarding |
+| Currency and timezone | Correct financial display | Onboarding |
+| Accepted Terms + Privacy Policy timestamp | Legal consent record | Signup |
+
+Nothing else required at this stage. The business's revenue, costs, and profit data is theirs — Operbase stores it as a custodian, not an owner.
+
+---
+
+**Stage 2 — Self-serve payment gateway (Phase 4)**
+
+The business connects their own gateway account (Stripe, Paystack, Flutterwave, or others). Money goes gateway → business's bank. Operbase handles credentials on their behalf but never touches funds.
+
+Additional data to collect:
+
+| Data | Why | Sensitivity |
+|------|-----|------------|
+| Business registration number (format varies by country) | For dispute support and audit trail if a gateway flags the business | Medium |
+| Gateway API keys (public + secret) | To make API calls on their behalf | High — encrypted at rest, never logged, never returned to client |
+| Accepted gateway connection terms | Business acknowledges Operbase is acting on their behalf | Legal |
+
+The gateway has already done their own KYC on the business. Operbase is not in the chain of money movement.
+
+---
+
+**Stage 3 — Payment facilitation (not in current roadmap)**
+
+Acting as a payment facilitator — provisioning gateway accounts, moving money, taking a cut — is a licensed activity in every market. This stage is not in scope for any current phase and requires significant legal, regulatory, and compliance infrastructure before it can be considered. See "What Phase 4 is NOT" under Phase 4.
+
+If this is ever pursued, the additional data requirements include: business registration certificate, TIN/tax registration, owner government-issued ID, government identity verification (format varies by country — national ID, passport, etc.), beneficial ownership disclosure (UBO), bank account for payouts, and transaction monitoring — all governed by a full KYB/KYC process via a licensed identity verification provider in the relevant market.
+
+**The line Operbase does not cross without a licence:** holding, routing, or facilitating the movement of third-party funds.
+
+---
+
 ### Privacy & Terms
 
 | Item | Detail |
 |------|--------|
-| **Privacy Policy** | Required by GDPR (EU), NDPR (Nigeria), and most app stores. Must state what data is collected, why, how long it's kept, and user rights. |
+| **Privacy Policy** | Required by data protection law in virtually every jurisdiction (GDPR, NDPR, LGPD, DPDPA, PIPEDA, and others) and by most app stores. Must state what data is collected, why, how long it's kept, and user rights. Write it to meet the strictest standard (GDPR) and it will satisfy most others. |
 | **Terms of Service** | Sets the contract between Operbase and the business owner. Covers acceptable use, liability, payment terms, account termination. |
 | **Accept on signup** | Users must actively accept Privacy Policy + Terms before creating an account — checkbox with links, not pre-ticked. Store `accepted_terms_at` timestamp on the user record. |
-| **Cookie consent** | Required for GDPR users. Operbase uses Supabase auth cookies (strictly necessary, no consent needed) + any analytics. Show a consent banner for non-essential cookies. |
-| **NDPR** (Nigeria Data Protection Regulation) | Applies because the primary market includes Nigeria. Requires a Privacy Policy, lawful basis for processing, and data subject rights (access, deletion). |
-| **GDPR** (EU General Data Protection Regulation) | Applies to any EU users. Stricter than NDPR — includes right to erasure ("delete my account + data"), data portability, and DPA requirements if using processors (Supabase, Vercel). |
+| **Cookie consent** | Required in many jurisdictions. Operbase uses Supabase auth cookies (strictly necessary, no consent needed) + any analytics. Show a consent banner for non-essential cookies. |
+| **Data subject rights** | Users in most jurisdictions have the right to access, correct, export, and delete their data. Operbase must be able to fulfil these requests — account deletion must cascade-delete or anonymise all business data. |
+| **Data Processing Agreements** | Required with any processor that handles user data on Operbase's behalf — Supabase, Vercel, any AI provider. Most offer a standard DPA; sign and store a copy. |
 
 ### Implementation plan
 
@@ -1366,13 +1523,21 @@ This section must be completed **before any paid plan is offered or user data is
 | Tax law complexity per country | Config-driven rules table, not hard-coded logic; start with user's declared country |
 | Multi-currency financial consolidation | All internal values stored in business's base currency; FX conversion is a reporting layer |
 | Billing alienating early users | Grandfather Phase 1 core features; gate only advanced features |
-| Legal exposure (GDPR/NDPR) | Implement terms, privacy policy, cookie consent, and account deletion before scaling — see Section 8 |
+| Legal exposure (data protection law) | Implement terms, privacy policy, cookie consent, and account deletion before scaling — GDPR is the strictest common standard; meet it and most other jurisdictions are covered — see Section 8 |
 | Hosting cost spike | Vercel team Pro when revenue justifies; one plan covers all projects under the org |
 | Customer network becomes a data trust problem | Be transparent from day one that operational data informs matching; never sell raw data; success fee model keeps incentives aligned |
 | MCP / agents exfiltrate or corrupt tenant data | Ship read-only tools first; mutating tools behind explicit human confirmation; audit logs; same RLS rules as the app — never bypass `business_id` |
-| AI API cost before revenue exists | Multi-model abstraction (Phase 1.7): free plan uses Groq free tier (£0 cost); paid plan subscribers fund Claude API usage via subscription revenue. Rate-limit free tier server-side. Cost scales with paying users, not with total signups. |
+| AI API cost before revenue exists | Multi-model abstraction (Phase 1.7): free plan uses Groq free tier (zero cost); paid plan subscribers fund Claude API usage via subscription revenue. Rate-limit free tier server-side. Cost scales with paying users, not with total signups. |
 | Vendor lock-in to a single AI provider | Vercel AI SDK as the abstraction layer — swapping providers is a config change, not a rewrite. Never call a provider SDK directly from assistant logic. |
+| Business data sent to AI provider without user knowledge | AI assistant is opt-in with an explicit disclosure at first activation. Consent stored in `business_settings`. If not consented, no data is ever sent to any AI provider. Free tier (Groq) and paid tier (Anthropic) have materially different data handling terms — communicate the difference clearly. |
 | Mobile experience inconsistent across devices | PWA approach (Phase 3.6) reuses existing Next.js codebase; test on iOS Safari and Android Chrome specifically. Bottom nav + safe area insets handle the key edge cases. |
+| Multi-country FX consolidation errors | Validate consolidated P&L logic independently before Phase 6 ships; surface last-updated timestamp on any FX-converted figure; alert if the daily FX source fails to refresh |
+| WhatsApp template rejection by Meta | Start Meta Business API application and template approval early (Phase 1.6) — approval takes days to weeks; every alert type must have an email or push fallback so the feature works even if a template is rejected |
+| Pre-orders confused with real sales (Phase 2.6) | Pre-orders are labelled as "pending demand" — they never appear in revenue or profit until explicitly converted to a sale; one-tap conversion makes the hand-off explicit |
+| Staff over-permission exposing cost and profit data | Financial visibility is a separate permission from operational access; default is financial data hidden from staff; owner must explicitly grant it |
+| FX rate staleness for cross-currency consolidated views | Cache FX rates daily with last-updated timestamp; any dashboard figure using conversion shows the rate date inline; Phase 6 locks rates at transaction time so period reports are never affected by staleness |
+| Operbase inadvertently crossing into payment facilitation | Any feature that causes Operbase to hold, route, or take a cut of third-party funds requires a payment facilitator licence. Enforce a clear internal rule: Operbase connects businesses to their own gateway accounts. Money flows gateway → business's bank. Operbase never touches funds. Any proposal that breaks this rule goes through legal review before it is built. |
+| Gateway API key exposure | Business gateway credentials stored by Operbase are high-value targets. Encrypt at rest using a server-side key, never log them, never return them to the client after initial save, rotate encryption keys on a schedule. A breach of these keys lets an attacker drain a business's revenue. |
 
 ---
 
